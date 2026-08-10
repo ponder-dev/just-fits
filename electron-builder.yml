@@ -36,7 +36,7 @@ mac:
   extraResources:
     - from: vendor/ffmpeg
       to: ffmpeg
-      filter: ["!*.exe"]
+      filter: ["*-darwin-*"]
   # The universal merger walks both sub-builds and refuses to guess what to do
   # with a Mach-O binary that appears in both. Ours are already named by arch
   # and both sub-builds carry the identical set, so tell it to take one copy
@@ -53,6 +53,23 @@ dmg:
   title: Just Fits
   artifactName: JustFits-mac.${ext}
 
+linux:
+  icon: build/icon.png
+  category: AudioVideo
+  synopsis: Make a file small enough to send
+  target:
+    - target: AppImage
+      arch: [x64]
+    - target: tar.gz
+      arch: [x64]
+  extraResources:
+    - from: vendor/ffmpeg
+      to: ffmpeg
+      filter: ["*-linux-*"]
+
+appImage:
+  artifactName: JustFits-linux-x86_64.${ext}
+
 win:
   icon: build/icon.png
   target:
@@ -63,7 +80,7 @@ win:
   extraResources:
     - from: vendor/ffmpeg
       to: ffmpeg
-      filter: ["*.exe"]
+      filter: ["*-win32-*"]
 
 nsis:
   oneClick: false

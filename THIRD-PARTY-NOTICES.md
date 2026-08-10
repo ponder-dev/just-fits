@@ -23,8 +23,13 @@ arithmetic on.
 - Full text: `licenses/ffmpeg-license.txt`, and the GPL itself in
   `licenses/gpl-3.0.txt`.
 
-**The binaries are not built here and are not modified.** They are published
-builds, taken as-is:
+**On the command line, FFmpeg is not bundled at all.** The `justfits` command
+uses whatever `ffmpeg` and `ffprobe` are on your PATH, so the terms that apply
+are those of the build your system installed, not of anything shipped here.
+Only the desktop app carries its own copy.
+
+**The bundled binaries are not built here and are not modified.** They are
+published builds, taken as-is:
 
 | Platform | Source |
 | --- | --- |

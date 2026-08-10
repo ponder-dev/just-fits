@@ -17,6 +17,7 @@ const fs = require('node:fs');
 
 const engine = require('./engine.cjs');
 const plan = require('./plan.js');
+const binaries = require('./binaries.cjs');
 
 let win = null;
 let ctl = null;
@@ -30,15 +31,12 @@ function vendorDir() {
     : path.join(__dirname, '..', 'vendor', 'ffmpeg');
 }
 
-// Suffixed with the arch so a universal mac build can carry both.
+// The app must never fall back to a system ffmpeg: someone who downloaded a
+// finished app should not discover it needs a video encoder installing. The
+// command line is the opposite and does fall back, which is why the two share
+// a resolver with a flag rather than each having their own.
 function binary(name) {
-  const dir = vendorDir();
-  const exe = process.platform === 'win32' ? '.exe' : '';
-  for (const candidate of [`${name}-${process.arch}${exe}`, `${name}${exe}`]) {
-    const full = path.join(dir, candidate);
-    if (fs.existsSync(full)) return full;
-  }
-  throw new Error(`Bundled ${name} is missing. Run: npm run fetch-ffmpeg`);
+  return binaries.resolve(name, [vendorDir()], false);
 }
 
 /* --- wiring ------------------------------------------------------------ */

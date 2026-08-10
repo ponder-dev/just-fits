@@ -57,6 +57,34 @@ npm run fetch-ffmpeg     # puts ffmpeg and ffprobe in vendor/
 npm start
 ```
 
+## The command line
+
+```sh
+npm install -g github:ponder-dev/just-fits
+justfits clip.mp4 --to discord
+```
+
+No dependencies and no bundled encoder, so the install is under 2MB. It uses
+whatever ffmpeg is on your PATH, which on Linux is one package away
+(`pacman -S ffmpeg`, `apt install ffmpeg`). The desktop app carries its own
+copy instead, because someone downloading a finished app should not then be
+told to install a video encoder.
+
+```sh
+justfits clip.mp4                      # beside it, as clip-fits.mp4
+justfits clip.mp4 --to gmail           # any preset, or a size like 25MB
+justfits clip.mp4 -o small.mp4         # somewhere specific
+justfits clip.mp4 --json               # for scripting
+cat clip.mp4 | justfits --to 8MB > small.mp4
+```
+
+Progress goes to stderr, so stdout stays clean to pipe. Piped input is buffered
+to a temp file first and it says so: two-pass encoding reads the input twice
+and a pipe cannot be rewound.
+
+The maths and the ffmpeg work are shared with the desktop app rather than
+reimplemented, so both produce the same output for the same input.
+
 ## Licences
 
 GPL-3.0-or-later, like the ffmpeg build it carries. `THIRD-PARTY-NOTICES.md`
@@ -71,6 +99,8 @@ scripts run it first so a stale one cannot ship.
 
 ```sh
 npm test                                 # the size arithmetic, instant
+node test/cli.test.cjs                   # the command line, as a subprocess
+npm run test:linux                       # the command line on real linux, in docker
 node test/encode.test.cjs                # real encodes, a minute or two
 electron test/window.test.cjs            # the window boots and renders
 ```
@@ -78,6 +108,10 @@ electron test/window.test.cjs            # the window boots and renders
 `encode.test.cjs` builds its own footage, compresses it, and checks the result
 is both under the limit and still playable. It also checks the original came
 through untouched.
+
+`test:linux` installs the published package into a Debian container, with that
+distro's own ffmpeg, and runs the same checks. The CLI is headless so a
+container is a real test of it. The GUI is not testable this way.
 
 ## ffmpeg
 

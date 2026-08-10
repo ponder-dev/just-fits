@@ -49,8 +49,15 @@ const MAC_ARM = {
 const WIN_ZIP =
   'https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip';
 
+// johnvansickle publishes the static Linux builds everyone uses. GPL, with
+// libx264, and the tarball nests everything under a versioned directory.
+const LINUX = {
+  x64: 'https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz',
+  arm64: 'https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-arm64-static.tar.xz',
+};
+
 const wanted = process.argv.includes('--all')
-  ? [['darwin', 'x64'], ['darwin', 'arm64'], ['win32', 'x64']]
+  ? [['darwin', 'x64'], ['darwin', 'arm64'], ['win32', 'x64'], ['linux', 'x64']]
   : [[process.platform, process.arch]];
 
 fs.mkdirSync(vendor, { recursive: true });
@@ -60,8 +67,8 @@ function sh(cmd, args) {
 }
 
 async function macTool(tool, arch) {
-  const target = path.join(vendor, `${tool}-${arch}`);
-  if (fs.existsSync(target)) return console.log(`  have ${tool}-${arch}`);
+  const target = path.join(vendor, `${tool}-darwin-${arch}`);
+  if (fs.existsSync(target)) return console.log(`  have ${tool}-darwin-${arch}`);
 
   if (arch === 'arm64') {
     const { url, sha256 } = MAC_ARM[tool];
@@ -100,7 +107,7 @@ async function macTool(tool, arch) {
 }
 
 async function windows() {
-  const need = ['ffmpeg', 'ffprobe'].filter((t) => !fs.existsSync(path.join(vendor, `${t}-x64.exe`)));
+  const need = ['ffmpeg', 'ffprobe'].filter((t) => !fs.existsSync(path.join(vendor, `${t}-win32-x64.exe`)));
   if (!need.length) return console.log('  have both windows binaries');
 
   const tmp = path.join(os.tmpdir(), `ffmpeg-win-${Date.now()}`);
@@ -113,9 +120,32 @@ async function windows() {
     // The zip nests everything under a versioned folder, so go and find it.
     const found = findFile(tmp, `${tool}.exe`);
     if (!found) throw new Error(`${tool}.exe was not in the windows archive`);
-    fs.copyFileSync(found, path.join(vendor, `${tool}-x64.exe`));
+    fs.copyFileSync(found, path.join(vendor, `${tool}-win32-x64.exe`));
   }
   fs.rmSync(tmp, { recursive: true, force: true });
+}
+
+async function linux(arch) {
+  const need = ['ffmpeg', 'ffprobe'].filter((t) => !fs.existsSync(path.join(vendor, `${t}-linux-${arch}`)));
+  if (!need.length) return console.log(`  have both linux ${arch} binaries`);
+  const url = LINUX[arch];
+  if (!url) return console.log(`  no linux build published for ${arch}`);
+
+  const tmp = path.join(os.tmpdir(), `ffmpeg-linux-${Date.now()}`);
+  fs.mkdirSync(tmp, { recursive: true });
+  console.log(`  fetching ffmpeg and ffprobe for linux ${arch} (~40MB)`);
+  sh('curl', ['-sL', '--max-time', '900', '-o', path.join(tmp, 'f.tar.xz'), url]);
+  sh('tar', ['xf', path.join(tmp, 'f.tar.xz'), '-C', tmp]);
+
+  for (const tool of need) {
+    const found = findFile(tmp, tool);
+    if (!found) throw new Error(`${tool} was not in the linux archive`);
+    const target = path.join(vendor, `${tool}-linux-${arch}`);
+    fs.copyFileSync(found, target);
+    fs.chmodSync(target, 0o755);
+  }
+  fs.rmSync(tmp, { recursive: true, force: true });
+  console.log(`  linux ${arch} done`);
 }
 
 function findFile(dir, name) {
@@ -138,6 +168,8 @@ for (const [platform, arch] of wanted) {
     await macTool('ffprobe', arch);
   } else if (platform === 'win32') {
     await windows();
+  } else if (platform === 'linux') {
+    await linux(arch);
   } else {
     console.log('  no automatic source for this platform, install ffmpeg yourself');
   }

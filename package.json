@@ -1,7 +1,7 @@
 {
   "name": "justfits",
   "productName": "Just Fits",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Make a file small enough to send. Compresses video and images to an exact size limit, entirely on your own machine.",
   "author": {
     "name": "PonderDev",
@@ -17,6 +17,9 @@
   },
   "license": "GPL-3.0-or-later",
   "main": "src/main.cjs",
+  "bin": {
+    "justfits": "src/cli.cjs"
+  },
   "private": true,
   "scripts": {
     "start": "electron .",
@@ -26,10 +29,18 @@
     "icon": "node scripts/make-icon.mjs && electron scripts/icons.cjs && ./scripts/make-icns.sh",
     "dist:mac": "npm run licences && electron-builder --mac",
     "dist:win": "npm run licences && electron-builder --win",
-    "dist": "npm run licences && electron-builder --mac --win"
+    "dist": "npm run licences && electron-builder --mac --win",
+    "cli": "node src/cli.cjs",
+    "test:linux": "./scripts/test-linux.sh"
   },
   "devDependencies": {
     "electron": "^43.3.0",
     "electron-builder": "^26.15.3"
-  }
+  },
+  "files": [
+    "src/**/*",
+    "LICENSE",
+    "THIRD-PARTY-NOTICES.md",
+    "licenses/**/*"
+  ]
 }

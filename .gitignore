@@ -1,0 +1,6 @@
+node_modules/
+dist/
+# ffmpeg and ffprobe are large and are not ours to redistribute in git.
+# scripts/fetch-ffmpeg.mjs pulls them, and the build packs them.
+vendor/
+.DS_Store

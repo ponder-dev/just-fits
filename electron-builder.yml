@@ -1,0 +1,76 @@
+appId: com.ponderdev.justfits
+productName: Just Fits
+copyright: Copyright © PonderDev
+
+directories:
+  output: dist
+  buildResources: build
+
+files:
+  - src/**/*
+  - package.json
+  # The GPL wants its terms travelling with the binary, not just sitting in
+  # the repo for whoever thinks to look.
+  - LICENSE
+  - THIRD-PARTY-NOTICES.md
+
+# ffmpeg and ffprobe ride along beside the app rather than inside the asar,
+# because they have to be spawned as real executables. Filtered per platform
+# below, or a mac build would carry 290MB of Windows exe it can never run.
+
+asar: true
+
+# No update feed. This is meant to be downloaded once and left alone, so it
+# must never phone home looking for a newer version.
+publish: null
+
+mac:
+  category: public.app-category.video
+  icon: build/icon.icns
+  # One download that works on both chips, same promise Just JPEG makes. It
+  # costs a second Electron and both sets of mac ffmpeg binaries, which is the
+  # price of not asking people what is inside their computer.
+  target:
+    - target: dmg
+      arch: [universal]
+  extraResources:
+    - from: vendor/ffmpeg
+      to: ffmpeg
+      filter: ["!*.exe"]
+  # The universal merger walks both sub-builds and refuses to guess what to do
+  # with a Mach-O binary that appears in both. Ours are already named by arch
+  # and both sub-builds carry the identical set, so tell it to take one copy
+  # through untouched rather than trying to lipo them into each other.
+  x64ArchFiles: "Contents/Resources/ffmpeg/*"
+  # Unsigned: a Developer ID costs more per year than a free app will make.
+  # Users get past Gatekeeper with right-click then Open.
+  identity: null
+  notarize: false
+  darkModeSupport: true
+
+dmg:
+  # No version in the filename, so download links keep working across releases.
+  title: Just Fits
+  artifactName: JustFits-mac.${ext}
+
+win:
+  icon: build/icon.png
+  target:
+    - target: nsis
+      arch: [x64]
+    - target: portable
+      arch: [x64]
+  extraResources:
+    - from: vendor/ffmpeg
+      to: ffmpeg
+      filter: ["*.exe"]
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  artifactName: JustFits-windows-setup.${ext}
+  shortcutName: Just Fits
+
+portable:
+  artifactName: JustFits-windows-portable.${ext}

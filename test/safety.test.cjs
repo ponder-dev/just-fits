@@ -53,8 +53,11 @@ test('it stays away even when every name it tries is taken', () => {
 });
 
 test('it lands beside the original, not somewhere else', () => {
-  const source = '/tmp/a folder/clip.mp4';
-  assert.equal(path.dirname(engine.outputPath(source, '.mp4', () => false)), '/tmp/a folder');
+  // Built with path.join so the expectation is this platform's own spelling
+  // (\tmp\a folder on Windows), which is what outputPath returns.
+  const folder = path.join(path.sep, 'tmp', 'a folder');
+  const source = path.join(folder, 'clip.mp4');
+  assert.equal(path.dirname(engine.outputPath(source, '.mp4', () => false)), folder);
 });
 
 test('the only thing it deletes lives in the temp folder', () => {

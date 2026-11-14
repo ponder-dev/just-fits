@@ -24,6 +24,11 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+// The hosts are small third parties and now and then refuse or stall a
+// connection from a CI runner. Every download is checked by sha256 or by the
+// licence gate afterwards, so trying again is safe.
+const RETRY = ['--retry', '5', '--retry-delay', '20', '--retry-all-errors', '--connect-timeout', '30'];
+
 const here = path.dirname(fileURLToPath(import.meta.url));
 const vendor = path.join(here, '..', 'vendor', 'ffmpeg');
 
@@ -75,7 +80,7 @@ async function macTool(tool, arch) {
     const tmp = path.join(os.tmpdir(), `${tool}-arm-${Date.now()}`);
     fs.mkdirSync(tmp, { recursive: true });
     console.log(`  fetching ${tool} for mac arm64`);
-    sh('curl', ['-sL', '--max-time', '900', '-o', path.join(tmp, 'a.zip'), url]);
+    sh('curl', [...RETRY, '-sL', '--max-time', '900', '-o', path.join(tmp, 'a.zip'), url]);
     sh('unzip', ['-oq', path.join(tmp, 'a.zip'), '-d', tmp]);
 
     const got = createHash('sha256').update(fs.readFileSync(path.join(tmp, tool))).digest('hex');
@@ -95,11 +100,11 @@ async function macTool(tool, arch) {
     return;
   }
 
-  const info = JSON.parse(sh('curl', ['-sL', '--max-time', '60', MAC_INFO(tool)]));
+  const info = JSON.parse(sh('curl', [...RETRY, '-sL', '--max-time', '60', MAC_INFO(tool)]));
   const url = info.download.zip.url;
   const tmp = path.join(os.tmpdir(), `${tool}-${Date.now()}.zip`);
   console.log(`  fetching ${tool} ${info.version} for mac ${arch}`);
-  sh('curl', ['-sL', '--max-time', '600', '-o', tmp, url]);
+  sh('curl', [...RETRY, '-sL', '--max-time', '600', '-o', tmp, url]);
   sh('unzip', ['-oq', tmp, '-d', vendor]);
   fs.renameSync(path.join(vendor, tool), target);
   fs.chmodSync(target, 0o755);
@@ -113,7 +118,7 @@ async function windows() {
   const tmp = path.join(os.tmpdir(), `ffmpeg-win-${Date.now()}`);
   fs.mkdirSync(tmp, { recursive: true });
   console.log('  fetching ffmpeg and ffprobe for windows x64 (~80MB)');
-  sh('curl', ['-sL', '--max-time', '900', '-o', path.join(tmp, 'w.zip'), WIN_ZIP]);
+  sh('curl', [...RETRY, '-sL', '--max-time', '900', '-o', path.join(tmp, 'w.zip'), WIN_ZIP]);
   sh('unzip', ['-oq', path.join(tmp, 'w.zip'), '-d', tmp]);
 
   for (const tool of need) {
@@ -134,7 +139,7 @@ async function linux(arch) {
   const tmp = path.join(os.tmpdir(), `ffmpeg-linux-${Date.now()}`);
   fs.mkdirSync(tmp, { recursive: true });
   console.log(`  fetching ffmpeg and ffprobe for linux ${arch} (~40MB)`);
-  sh('curl', ['-sL', '--max-time', '900', '-o', path.join(tmp, 'f.tar.xz'), url]);
+  sh('curl', [...RETRY, '-sL', '--max-time', '900', '-o', path.join(tmp, 'f.tar.xz'), url]);
   sh('tar', ['xf', path.join(tmp, 'f.tar.xz'), '-C', tmp]);
 
   for (const tool of need) {

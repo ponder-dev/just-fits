@@ -190,13 +190,16 @@ async function fitVideo({ ffmpeg, file, info, targetBytes, outDir, onProgress = 
         '-c:v', 'libx264', '-b:v', `${p.videoKbps}k`,
         '-preset', 'slow', '-pix_fmt', 'yuv420p',
         ...(filters.length ? ['-vf', filters.join(',')] : []),
-        '-passlogfile', logFile,
+        // Scoped to the video stream. Unscoped, -pass also reaches the audio
+        // encoder in pass 2, and the Windows ffmpeg build then looks for a
+        // two-pass log for the audio, finds none, and fails the encode.
+        '-passlogfile:v', logFile,
       ];
 
       // Two passes, because hitting a size is precisely what two-pass is for.
       // The first sees the whole clip so the second can spend the budget
       // where the picture actually needs it.
-      await run(ffmpeg, [...common, '-pass', '1', '-an', '-f', 'mp4', NULL_DEVICE], {
+      await run(ffmpeg, [...common, '-pass:v', '1', '-an', '-f', 'mp4', NULL_DEVICE], {
         durationSec: info.durationSec, ctl,
         onProgress: (v) => onProgress({ stage: 'Looking at the video', progress: v * 0.35, attempt }),
       });
@@ -205,7 +208,7 @@ async function fitVideo({ ffmpeg, file, info, targetBytes, outDir, onProgress = 
         ? ['-c:a', 'aac', '-b:a', `${p.audioKbps}k`, '-ac', String(p.audioChannels)]
         : ['-an'];
 
-      await run(ffmpeg, [...common, '-pass', '2', ...audioArgs, '-movflags', '+faststart', out], {
+      await run(ffmpeg, [...common, '-pass:v', '2', ...audioArgs, '-movflags', '+faststart', out], {
         durationSec: info.durationSec, ctl,
         onProgress: (v) => onProgress({ stage: 'Compressing', progress: 0.35 + v * 0.65, attempt }),
       });

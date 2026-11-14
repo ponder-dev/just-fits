@@ -165,6 +165,12 @@ jobs:
       # edited and nothing is committed that a build can produce. A failure here
       # stops the run rather than packaging with electron-builder's default icon,
       # which is the silent version of this failure and the one that ships.
+      # scripts/make-icns.sh sizes the iconset with ImageMagick, which the
+      # Mac runner does not have.
+      - name: ImageMagick, for the Mac icon
+        if: runner.os == 'macOS'
+        run: brew install imagemagick
+
       - name: Build the icon from its vector
         run: ${{ matrix.icon }}
 

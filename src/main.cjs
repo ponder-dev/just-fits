@@ -11,7 +11,7 @@
  * never touches the network.
  */
 
-const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
+const { app, BrowserWindow, screen, ipcMain, dialog, shell } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
 
@@ -22,6 +22,11 @@ const binaries = require('./binaries.cjs');
 let win = null;
 let ctl = null;
 let licenceWindow = null;
+
+// Windows starts an Open window in Downloads, which is usually empty and,
+// filtered to video and images, shows nothing at all. So it starts where the
+// last file came from instead, by dialog or by drop, else in Documents.
+let lastOpenDir = null;
 
 /* --- the bundled binaries --------------------------------------------- */
 
@@ -50,10 +55,18 @@ function registerHandlers() {
   ipcMain.handle('targets', () => plan.TARGETS);
 
   ipcMain.handle('probe', async (_e, file) => {
+    let ffprobe;
     try {
-      return { ok: true, info: await engine.probe(binary('ffprobe'), file) };
+      ffprobe = binary('ffprobe');
     } catch (err) {
       return { ok: false, message: String(err.message || err) };
+    }
+    try {
+      const info = await engine.probe(ffprobe, file);
+      lastOpenDir = path.dirname(file);
+      return { ok: true, info };
+    } catch (err) {
+      return { ok: false, message: probeMessage(file, String(err.message || err)) };
     }
   });
 
@@ -103,18 +116,47 @@ function registerHandlers() {
 
   ipcMain.handle('pick-file', async () => {
     const r = await dialog.showOpenDialog(win, {
+      defaultPath: lastOpenDir || app.getPath('documents'),
       properties: ['openFile'],
       filters: [{
         name: 'Video and images',
         extensions: ['mp4', 'mov', 'mkv', 'webm', 'avi', 'm4v', 'jpg', 'jpeg', 'png', 'heic', 'webp', 'gif'],
       }],
     });
-    return r.canceled ? null : r.filePaths[0];
+    if (r.canceled) return null;
+    lastOpenDir = path.dirname(r.filePaths[0]);
+    return r.filePaths[0];
   });
   }
 
+  // ffprobe's reason starts with the whole path ("C:\Users\...\clip.mp4:
+  // Invalid data found when processing input"), which in the window is long,
+  // technical and wraps across the error box. The window says it as a sentence
+  // that names the file. The command line keeps ffprobe's words, for scripts.
+  function probeMessage(file, reason) {
+    const name = path.basename(String(file || ''));
+    if (/no such file/i.test(reason)) return `Could not find ${name}. It may have been moved or deleted.`;
+    if (/permission denied|operation not permitted/i.test(reason)) return `Just Fits is not allowed to open ${name}.`;
+    return `${name} is not a video or picture that Just Fits can read.`;
+  }
+
+
+  // A laptop at 1366x768 has about 728 pixels of height left for a window once
+  // the taskbar (or the menu bar and Dock) is taken off, and a window opened
+  // taller than that put the bottom of the screen, the main button included,
+  // out of reach under the taskbar. So the window, and its minimum, are fitted
+  // to the work area of the screen it opens on.
+  function fitToScreen(opts) {
+    const area = screen.getPrimaryDisplay().workAreaSize;
+    const fit = { ...opts };
+    for (const [key, side] of [['width', 'width'], ['height', 'height'], ['minWidth', 'width'], ['minHeight', 'height']]) {
+      if (typeof fit[key] === 'number') fit[key] = Math.min(fit[key], area[side]);
+    }
+    return fit;
+  }
+
   function createWindow() {
-    win = new BrowserWindow({
+    win = new BrowserWindow(fitToScreen({
       width: 720,
       height: 780,
       minWidth: 560,
@@ -126,14 +168,16 @@ function registerHandlers() {
         contextIsolation: true,
         nodeIntegration: false,
       },
-    });
+    }));
     win.setMenuBarVisibility(false);
     win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
   }
 
   // Guarded so requiring this file from a test registers the handlers without
-  // also opening a window.
-  if (require.main === module) {
+  // also opening a window. An env var rather than require.main, because under
+  // `electron .` from source Electron does not make this file require.main, so
+  // that check opened nothing.
+  if (process.env.JUST_TEST_NO_WINDOW !== '1') {
     registerHandlers();
     app.whenReady().then(createWindow);
     app.on('window-all-closed', () => app.quit());
@@ -142,4 +186,4 @@ function registerHandlers() {
     });
   }
 
-  module.exports = { registerHandlers, binary };
+  module.exports = { registerHandlers, binary, probeMessage };

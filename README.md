@@ -38,7 +38,7 @@ boosted server gives everyone in it 100MB whether they pay or not.
 
 The email presets aim lower than the number the provider advertises, because
 attachments are base64 encoded in transit and that adds about 37 percent.
-Gmail says 25MB and will bounce a 25MB file, so the Gmail preset targets 18MB.
+Gmail says 25MB and will bounce a 25MB file, so the Gmail preset targets 18.2MB.
 
 ## The rules it follows
 
@@ -60,7 +60,7 @@ npm start
 ## The command line
 
 ```sh
-npm install -g github:ponder-dev/just-fits
+npm install -g @ponderdev/justfits
 justfits clip.mp4 --to discord
 ```
 
@@ -70,17 +70,43 @@ whatever ffmpeg is on your PATH, which on Linux is one package away
 copy instead, because someone downloading a finished app should not then be
 told to install a video encoder.
 
+Needs Node 22 or newer, and an ffmpeg with libx264 on the PATH (no minimum version has been tested).
+
 ```sh
-justfits clip.mp4                      # beside it, as clip-fits.mp4
+justfits clip.mp4                      # beside it, as clip-fits.mp4 (a picture becomes clip-fits.jpg)
 justfits clip.mp4 --to gmail           # any preset, or a size like 25MB
 justfits clip.mp4 -o small.mp4         # somewhere specific
 justfits clip.mp4 --json               # for scripting
 cat clip.mp4 | justfits --to 8MB > small.mp4
 ```
 
+If the name is taken it writes `clip-fits 2.mp4`, then 3, and never over an
+existing file. A file that is neither video nor picture is refused with a
+sentence saying so (exit 1). With input from stdin and no `-o`, the result goes
+to stdout.
+
 Progress goes to stderr, so stdout stays clean to pipe. Piped input is buffered
 to a temp file first and it says so: two-pass encoding reads the input twice
 and a pipe cannot be rewound.
+
+### For scripts and assistants
+
+- `--json` prints one JSON line per thing it did, then a `done` line: a
+  `result` (written), a `skip` (it already fit) or an `error`. Errors are JSON
+  too. When the video itself goes to stdout, the JSON goes to stderr instead.
+- `--describe` prints every option, its type and default, the targets and the
+  exit codes, as JSON, so nothing has to be guessed from `--help`.
+- `--dry-run` says what would happen and writes nothing.
+- `--help`, `--version` and `--describe` answer at once and do nothing else.
+
+Exit status: **0** done or already fits, **1** failed, **2** a bad option,
+target or missing file (nothing was started), **4** still over the target
+after every try. 129, 130 and 143 mean it was stopped, with part files removed.
+
+**Changed in 1.2.0**, for anyone with a script from before: still over the
+target is now 4 (it was 2, which is now a usage error), and `--json` ends with a
+`done` line, so read the first line rather than parsing everything printed.
+The fields in a result are the same as before.
 
 The maths and the ffmpeg work are shared with the desktop app rather than
 reimplemented, so both produce the same output for the same input.
@@ -131,4 +157,3 @@ hash is of the binary inside the zip, not of the zip.
 ## Still to do
 
 - test a packaged build on Apple Silicon and on Windows, on real hardware
-- a file that is neither video nor image: refused rather than zipped

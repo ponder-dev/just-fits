@@ -32,14 +32,31 @@ function fromDir(dir, name) {
   return null;
 }
 
+// Walks PATH ourselves. Minimal Linux images (Fedora minimal, slim Docker
+// bases) often have no `which`, and its absence used to read as "ffmpeg not
+// found" to someone who had ffmpeg installed.
+function scanPath(name) {
+  for (const dir of (process.env.PATH || '').split(path.delimiter)) {
+    if (!dir) continue;
+    const full = path.join(dir, name + EXE);
+    try {
+      if (fs.statSync(full).isFile()) {
+        if (process.platform !== 'win32') fs.accessSync(full, fs.constants.X_OK);
+        return full;
+      }
+    } catch {}
+  }
+  return null;
+}
+
 function fromPath(name) {
   const finder = process.platform === 'win32' ? 'where' : 'which';
   try {
     const found = execFileSync(finder, [name + EXE], { stdio: ['ignore', 'pipe', 'ignore'] })
       .toString().split('\n')[0].trim();
-    return found || null;
+    return found || scanPath(name);
   } catch (err) {
-    return null;
+    return scanPath(name);
   }
 }
 

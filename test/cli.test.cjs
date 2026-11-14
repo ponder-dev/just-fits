@@ -36,6 +36,9 @@ function makeClip(name, seconds = 8) {
   return out;
 }
 
+// The first JSON line: the result, or the skip. A done line always follows it.
+const first = (text) => JSON.parse(text.trim().split('\n')[0]);
+
 const run = (args, opts = {}) =>
   execFileSync(process.execPath, [CLI, ...args], { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'], ...opts });
 
@@ -55,7 +58,7 @@ test('a size can be given directly', { timeout: 300000 }, () => {
   if (!FFMPEG) return;
   const src = makeClip('size.mp4');
   const out = path.join(dir, 'size-out.mp4');
-  const r = JSON.parse(run([src, '--to', '2MB', '--out', out, '--json']));
+  const r = first(run([src, '--to', '2MB', '--out', out, '--json']));
   assert.equal(r.ok, true);
   assert.ok(r.after <= 2_000_000, `landed at ${r.after}`);
   assert.ok(fs.existsSync(out));
@@ -86,6 +89,67 @@ test('stdin in, stdout out, and stdout carries only the file', { timeout: 300000
 test('a file that already fits is left alone', { timeout: 300000 }, () => {
   if (!FFMPEG) return;
   const src = makeClip('small.mp4', 2);
-  const r = JSON.parse(run([src, '--to', '500MB', '--json']));
+  const r = first(run([src, '--to', '500MB', '--json']));
   assert.equal(r.skipped, true);
+});
+
+test('-o never replaces an existing file, the input least of all', { timeout: 300000 }, () => {
+  if (!FFMPEG) return;
+  const src = makeClip('inplace.mp4', 2);
+  const before = fs.readFileSync(src);
+  assert.throws(() => run([src, '--to', '200KB', '-o', src]), (e) =>
+    e.status === 2 && /Will not overwrite/.test(e.stderr || ''));
+  assert.ok(before.equals(fs.readFileSync(src)), 'the original changed');
+});
+
+test('a missing option value is an error, not a silent default', () => {
+  assert.throws(() => run(['x.mp4', '--to']), (e) => e.status === 2 && /needs a value/.test(e.stderr || ''));
+  assert.throws(() => run(['x.mp4', '--to=']), (e) => e.status === 2 && /needs a value/.test(e.stderr || ''));
+  assert.throws(() => run(['x.mp4', '-o', '--json']), (e) => e.status === 2 && /needs a value/.test(e.stderr || ''));
+});
+
+test('--json with the file on stdout puts the JSON on stderr', { timeout: 300000 }, () => {
+  if (!FFMPEG) return;
+  const src = makeClip('jsonpipe.mp4', 3);
+  const out = path.join(dir, 'jsonpipe-out.mp4');
+  const err = path.join(dir, 'jsonpipe.err');
+  execSync(`${JSON.stringify(process.execPath)} ${JSON.stringify(CLI)} ${JSON.stringify(src)} --to 500KB -o - --json > ${JSON.stringify(out)} 2> ${JSON.stringify(err)}`);
+  assert.equal(first(fs.readFileSync(err, 'utf8')).path, '-');
+  assert.ok(!fs.readFileSync(out).subarray(-200).toString('latin1').includes('"ok"'), 'JSON ended up in the video');
+});
+
+test('already fits with -o still leaves the file at -o', { timeout: 300000 }, () => {
+  if (!FFMPEG) return;
+  const src = makeClip('fitsout.mp4', 2);
+  const out = path.join(dir, 'fitsout-copy.mp4');
+  const r = first(run([src, '--to', '500MB', '-o', out, '--json']));
+  assert.equal(r.skipped, true);
+  assert.equal(r.path, out);
+  assert.ok(fs.readFileSync(src).equals(fs.readFileSync(out)));
+});
+
+test('-o into a missing folder names that folder, before any encoding', () => {
+  if (!FFMPEG) return;
+  const desk = fs.mkdtempSync(path.join(dir, 'nodir-'));
+  const src = path.join(desk, 'notprobed.mp4');
+  fs.writeFileSync(src, 'never read: the folder check comes first');
+  const out = path.join('nodir', 'out.mp4');
+  assert.throws(() => run([src, '-o', out], { cwd: desk }), (e) =>
+    e.status === 2 && (e.stderr || '').trim() === `The folder nodir does not exist.`);
+  assert.throws(() => run([src, '-o', path.join('notprobed.mp4', 'out.mp4')], { cwd: desk }), (e) =>
+    e.status === 2 && (e.stderr || '').trim() === `notprobed.mp4 is not a folder.`);
+  assert.ok(!fs.readdirSync(desk).some((f) => f.includes('-fits')), 'an encode started');
+});
+
+test('-o refuses Windows device names on every platform', () => {
+  if (!FFMPEG) return;
+  const src = path.join(dir, 'notprobed.mp4');
+  fs.writeFileSync(src, 'never read: the name check comes first');
+  for (const name of ['con.mp4', 'NUL', 'nul.zip', 'Aux.mp4', 'com1.mp4', 'LPT9.tar.gz', 'prn.mp4', 'nul. ', 'sub\\con.mp4']) {
+    assert.throws(() => run([src, '-o', name], { cwd: dir }), (e) =>
+      e.status === 2 && (e.stderr || '').trim() === `${name.split(/[\\/]/).pop()} is a name Windows keeps for a device, so nothing would be saved. Choose another name.`, name);
+  }
+  // Only the whole stem is reserved, not names that merely start with one.
+  assert.throws(() => run([src, '-o', 'console.mp4'], { cwd: dir }), (e) =>
+    !/keeps for a device/.test(e.stderr || ''));
 });

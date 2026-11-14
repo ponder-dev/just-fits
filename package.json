@@ -1,7 +1,7 @@
 {
   "name": "justfits",
   "productName": "Just Fits",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Make a file small enough to send. Compresses video and images to an exact size limit, entirely on your own machine.",
   "author": {
     "name": "PonderDev",
@@ -23,15 +23,18 @@
   "private": true,
   "scripts": {
     "start": "electron .",
-    "test": "node test/plan.test.cjs",
+    "test": "node test/plan.test.cjs && node test/contract.test.cjs",
     "fetch-ffmpeg": "node scripts/fetch-ffmpeg.mjs",
     "licences": "node scripts/make-licenses.mjs",
     "icon": "node scripts/make-icon.mjs && electron scripts/icons.cjs && ./scripts/make-icns.sh",
     "dist:mac": "npm run licences && electron-builder --mac",
     "dist:win": "npm run licences && electron-builder --win",
-    "dist": "npm run licences && electron-builder --mac --win",
+    "dist": "npm run licences && electron-builder --mac --win --linux",
     "cli": "node src/cli.cjs",
-    "test:linux": "./scripts/test-linux.sh"
+    "test:linux": "./scripts/test-linux.sh",
+    "test:cli": "node test/cli.test.cjs && node test/safety.test.cjs",
+    "test:window": "env -u ELECTRON_RUN_AS_NODE electron test/window.test.cjs",
+    "dist:linux": "npm run licences && electron-builder --linux"
   },
   "devDependencies": {
     "electron": "^43.3.0",

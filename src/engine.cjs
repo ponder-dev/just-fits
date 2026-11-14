@@ -63,26 +63,76 @@ function run(bin, args, { onProgress, durationSec, ctl } = {}) {
   });
 }
 
-async function probe(ffprobe, file) {
-  const json = await new Promise((resolve, reject) => {
-    const child = spawn(ffprobe, ['-v', 'error', '-print_format', 'json', '-show_format', '-show_streams', file], { windowsHide: true });
+function ffprobeOut(ffprobe, args) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(ffprobe, args, { windowsHide: true });
     let out = '';
     let err = '';
     child.stdout.on('data', (c) => { out += c; });
     child.stderr.on('data', (c) => { err += c; });
     child.on('error', reject);
-    child.on('close', (code) => (code === 0 ? resolve(out) : reject(new Error(err.trim() || 'Could not read that file'))));
+    // ffprobe's own lines carry a demuxer tag and a memory address
+    // ("[mov,mp4,... @ 0x1234] moov atom not found"), which changes every run
+    // and means nothing to a person or a script; the line after it says why.
+    const reason = () => err.split('\n').map((l) => l.trim())
+      .filter((l) => l && !/^\[[^\]]* @ 0x[0-9a-f]+\]/i.test(l)).pop();
+    child.on('close', (code) => (code === 0 ? resolve(out) : reject(new Error(reason() || 'Could not read that file'))));
   });
+}
+
+// "00:01:02.500000000", as Matroska writes its DURATION tag.
+function clockSeconds(value) {
+  const m = /^(\d+):(\d+):(\d+(?:\.\d+)?)$/.exec(String(value || '').trim());
+  return m ? Number(m[1]) * 3600 + Number(m[2]) * 60 + Number(m[3]) : 0;
+}
+
+// The last packet's timestamp. Only reached for files whose header carries no
+// duration at all (a webm recorded live by a browser), so the cost of reading
+// every packet header is paid only when there is no other way to know.
+async function scanDuration(ffprobe, file) {
+  try {
+    const packets = await ffprobeOut(ffprobe, ['-v', 'error', '-select_streams', 'v:0',
+      '-show_entries', 'packet=pts_time', '-of', 'csv=p=0', file]);
+    let last = 0;
+    for (const line of packets.split('\n')) {
+      const t = Number(line.split(',')[0]);
+      if (Number.isFinite(t) && t > last) last = t;
+    }
+    return last;
+  } catch {
+    return 0;
+  }
+}
+
+async function probe(ffprobe, file) {
+  const json = await ffprobeOut(ffprobe, ['-v', 'error', '-print_format', 'json', '-show_format', '-show_streams', file]);
 
   const info = JSON.parse(json);
-  const video = (info.streams || []).find((s) => s.codec_type === 'video');
-  const audio = (info.streams || []).find((s) => s.codec_type === 'audio');
+  const streams = info.streams || [];
+  // Cover art in an mp3 or m4a is a video stream too, but it is not the
+  // picture anyone means to send, so it never counts as one.
+  const video = streams.find((s) => s.codec_type === 'video' && !(s.disposition && s.disposition.attached_pic));
+  const audio = streams.find((s) => s.codec_type === 'audio');
   if (!video) throw new Error('There is no picture in that file');
 
-  const durationSec = Number(info.format && info.format.duration) || 0;
+  const imageFormat = /^(image2|png_pipe|jpeg_pipe|webp_pipe)/.test((info.format && info.format.format_name) || '');
+  let durationSec = Number(info.format && info.format.duration) ||
+    Number(video.duration) ||
+    clockSeconds(video.tags && (video.tags.DURATION || video.tags.duration)) || 0;
+  // No duration in the header does not make a video a still: a live-recorded
+  // webm has none, and treating it as an image turned it into one JPEG frame.
+  if (!durationSec && !imageFormat && video.nb_frames !== '1') {
+    durationSec = await scanDuration(ffprobe, file);
+  }
   // A still is a video stream with no duration and a single frame.
-  const still = !durationSec || video.nb_frames === '1' ||
-    /^(image2|png_pipe|jpeg_pipe|webp_pipe)/.test(info.format.format_name || '');
+  const still = !durationSec || video.nb_frames === '1' || imageFormat;
+
+  // Phones store portrait video landscape with a rotation flag, and ffmpeg
+  // rotates before the scale filter runs, so plan in the shape that is shown
+  // or a portrait clip gets squashed into a landscape frame.
+  const sideRotation = (video.side_data_list || []).find((d) => d.rotation !== undefined);
+  const rotation = Number(sideRotation ? sideRotation.rotation : (video.tags && video.tags.rotate)) || 0;
+  const sideways = Math.abs(Math.round(rotation)) % 180 === 90;
 
   const [num, den] = String(video.r_frame_rate || '30/1').split('/').map(Number);
   const fps = den ? num / den : 30;
@@ -90,8 +140,8 @@ async function probe(ffprobe, file) {
   return {
     kind: still ? 'image' : 'video',
     durationSec,
-    width: Number(video.width) || 0,
-    height: Number(video.height) || 0,
+    width: Number(sideways ? video.height : video.width) || 0,
+    height: Number(sideways ? video.width : video.height) || 0,
     fps: Number.isFinite(fps) && fps > 0 ? fps : 30,
     hasAudio: Boolean(audio),
     bytes: fs.statSync(file).size,
@@ -117,10 +167,16 @@ async function fitVideo({ ffmpeg, file, info, targetBytes, outDir, onProgress = 
   const logFile = path.join(os.tmpdir(), `justfits-${process.pid}-${Date.now()}`);
   let correction = 1;
   let result = null;
+  let lastPlan = null;
 
   try {
     for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
       const p = plan.planVideo({ ...info, targetBytes, correction });
+      // At the floors a smaller correction changes nothing, and encoding the
+      // same plan again only repeats a slow two-pass for the same result.
+      const key = [p.width, p.height, p.fps, p.videoKbps, p.audioKbps, p.audioChannels].join(',');
+      if (key === lastPlan) break;
+      lastPlan = key;
 
       const filters = [];
       if (p.width !== info.width || p.height !== info.height) {
@@ -161,6 +217,16 @@ async function fitVideo({ ffmpeg, file, info, targetBytes, outDir, onProgress = 
       // Overshot. Measure by how much and aim lower rather than guess again.
       correction = plan.correctionFor(bytes, targetBytes, correction);
     }
+  } catch (err) {
+    // A cancelled or failed encode leaves a half-written file under a name
+    // that says it fits. Nothing should be left that looks sendable.
+    try { fs.unlinkSync(out); } catch {}
+    // Fedora's default ffmpeg and other LGPL builds have no x264, and ffmpeg's
+    // own wording for that does not say what to do about it.
+    if (/Unknown encoder 'libx264'/.test(err.message) && !err.cancelled) {
+      throw new Error(`This ffmpeg has no H.264 encoder (libx264), which video needs. Install a full ffmpeg build.\n${err.message}`);
+    }
+    throw err;
   } finally {
     for (const suffix of ['-0.log', '-0.log.mbtree', '.log', '.log.mbtree']) {
       try { fs.unlinkSync(logFile + suffix); } catch {}
@@ -178,11 +244,17 @@ async function fitImage({ ffmpeg, file, info, targetBytes, outDir, onProgress = 
     const p = plan.planImage({ targetBytes, width: info.width, height: info.height, attempt });
     onProgress({ stage: attempt ? 'Trying harder' : 'Compressing', progress: attempt / 5, attempt });
 
-    await run(ffmpeg, [
-      '-hide_banner', '-nostats', '-y', '-i', file,
-      '-vf', `scale=${p.width}:${p.height}:flags=lanczos`,
-      '-q:v', String(p.quality), out,
-    ], { ctl });
+    try {
+      await run(ffmpeg, [
+        '-hide_banner', '-nostats', '-y', '-i', file,
+        '-vf', `scale=${p.width}:${p.height}:flags=lanczos`,
+        '-q:v', String(p.quality), out,
+      ], { ctl });
+    } catch (err) {
+      // Same as video: no half-written file left behind under a "fits" name.
+      try { fs.unlinkSync(out); } catch {}
+      throw err;
+    }
 
     const bytes = fs.statSync(out).size;
     result = { path: out, bytes, plan: p, attempts: attempt + 1 };

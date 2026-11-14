@@ -63,7 +63,13 @@ el('target').addEventListener('change', (e) => {
 
 el('custom').addEventListener('input', (e) => {
   const mb = Number(e.target.value);
-  if (!(mb > 0)) return;
+  if (!(mb > 0)) {
+    // Cleared or nonsense: fall back to what the dropdown shows, rather than
+    // quietly keeping the last custom size while the dropdown says otherwise.
+    const t = TARGETS.find((x) => x.id === el('target').value);
+    if (t) useTarget(t);
+    return;
+  }
   targetBytes = mb * MB;
   el('aim').textContent = `aiming for ${human(targetBytes)}`;
   el('why').textContent = '';
@@ -76,11 +82,17 @@ async function take(filePath) {
   hide('error');
   hide('done');
 
-  const r = await window.fits.probe(filePath);
+  // A drop that carries no path (dragged from somewhere that is not a real
+  // file on disk) would otherwise surface ffprobe's ": No such file" with no name.
+  const r = filePath
+    ? await window.fits.probe(filePath)
+    : { ok: false, message: 'Could not tell where that file is. Try "choose a file" instead.' };
   if (!r.ok) {
     chosen = null;
     el('go').disabled = true;
-    show('error', r.message);
+    // Hide the previous file, so its name is not left beside an error about another.
+    el('file').hidden = true;
+    showInView('error', r.message);
     return;
   }
 
@@ -127,6 +139,26 @@ function show(id, text) {
 }
 function hide(id) { el(id).hidden = true; }
 
+// At 800x600 the window is short enough that progress, the result and errors
+// all land below the fold, and a greyed button alone looks the same as nothing
+// happening. So whatever the user is now waiting on, or has just got, scrolls
+// into view.
+function showInView(id, text) {
+  show(id, text);
+  el(id).scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+}
+
+// The output goes beside the original with no Save window, so the Done card
+// says what it is called and where it is, rather than leaving the user to find
+// out through "Show me the file". Split by hand: the page has no path module.
+function whereText(file) {
+  const cut = Math.max(file.lastIndexOf('/'), file.lastIndexOf('\\'));
+  const name = file.slice(cut + 1);
+  // A file at the top of a drive or the root keeps its separator: C:\ and /.
+  const folder = cut > 0 && !/:$/.test(file.slice(0, cut)) ? file.slice(0, cut) : file.slice(0, cut + 1);
+  return folder ? `Saved as ${name}, next to the original in ${folder}` : `Saved as ${name}`;
+}
+
 window.fits.onProgress((p) => {
   el('fill').style.width = Math.round(p.progress * 100) + '%';
   el('stage').textContent = p.stage;
@@ -138,11 +170,12 @@ el('go').addEventListener('click', async () => {
   if (!chosen || busy) return;
 
   if (chosen.info.bytes <= targetBytes) {
-    show('done');
     el('result').textContent = 'That already fits.';
     el('result').classList.remove('over');
     el('detail').textContent = `${human(chosen.info.bytes)}, under the ${human(targetBytes)} limit. Nothing to do.`;
     el('reveal').hidden = true;
+    el('where').textContent = '';
+    showInView('done');
     return;
   }
 
@@ -150,8 +183,8 @@ el('go').addEventListener('click', async () => {
   el('go').disabled = true;
   hide('error');
   hide('done');
-  show('working');
   el('fill').style.width = '0%';
+  showInView('working');
 
   const r = await window.fits.fit(chosen.path, targetBytes);
 
@@ -160,7 +193,7 @@ el('go').addEventListener('click', async () => {
   hide('working');
 
   if (!r.ok) {
-    if (!r.cancelled) show('error', r.message);
+    if (!r.cancelled) showInView('error', r.message);
     return;
   }
 
@@ -180,9 +213,10 @@ el('go').addEventListener('click', async () => {
   if (r.attempts > 1) bits.push(`${r.attempts} attempts`);
   el('detail').textContent = bits.join('  ·  ');
 
+  el('where').textContent = whereText(r.path);
   el('reveal').hidden = false;
   el('reveal').onclick = () => window.fits.reveal(r.path);
-  show('done');
+  showInView('done');
 });
 
 el('cancel').addEventListener('click', () => window.fits.cancel());

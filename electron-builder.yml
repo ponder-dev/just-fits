@@ -33,6 +33,11 @@ mac:
   target:
     - target: dmg
       arch: [universal]
+    # Just Tool Belt installs from the zip: a disk image cannot be mounted
+    # reliably from a background process.
+    - target: zip
+      arch: [universal]
+  artifactName: JustFits-mac.${ext}
   extraResources:
     - from: vendor/ffmpeg
       to: ffmpeg
@@ -54,6 +59,10 @@ dmg:
   artifactName: JustFits-mac.${ext}
 
 linux:
+  # Set here too, or the tar.gz falls through to electron-builder's default
+  # name, which carries the version and breaks the download link (1.1.0's had
+  # to be renamed by hand).
+  artifactName: JustFits-linux-x86_64.${ext}
   icon: build/icon.png
   category: AudioVideo
   synopsis: Make a file small enough to send
@@ -77,6 +86,11 @@ win:
       arch: [x64]
     - target: portable
       arch: [x64]
+    # Just Tool Belt installs from the zip: the portable exe unpacks itself to
+    # a temporary folder on every run, so it cannot be installed.
+    - target: zip
+      arch: [x64]
+  artifactName: JustFits-windows.${ext}
   extraResources:
     - from: vendor/ffmpeg
       to: ffmpeg

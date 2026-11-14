@@ -62,9 +62,17 @@ test('the only thing it deletes lives in the temp folder', () => {
   // that actually ships rather than on a description of it.
   const engineSource = fs.readFileSync(path.join(__dirname, '..', 'src', 'engine.cjs'), 'utf8');
   const deletes = engineSource.match(/fs\.(unlink|unlinkSync|rm|rmSync|rename|renameSync)\w*\(([^)]*)\)/g) || [];
-  assert.equal(deletes.length, 1, `expected one delete, found ${deletes.length}: ${deletes.join(' | ')}`);
-  assert.match(deletes[0], /logFile/, 'the one delete must be the two-pass log');
+  // Two things may be deleted: the two-pass log, and our own half-written
+  // output when an encode fails or is cancelled. Nothing else, ever.
+  assert.ok(deletes.length >= 1, 'expected the two-pass log to be cleaned up');
+  for (const d of deletes) {
+    assert.match(d, /^fs\.unlinkSync\((logFile \+ suffix|out)\)$/, `unexpected delete: ${d}`);
+  }
   assert.match(engineSource, /logFile = path\.join\(os\.tmpdir\(\)/, 'and the log must live in the temp folder');
+  // `out` is only ever a fresh name from outputPath, which never returns the source.
+  const outs = engineSource.match(/const out = [^;]*;/g) || [];
+  assert.ok(outs.length >= 1, 'expected the output path to be named');
+  for (const o of outs) assert.match(o, /^const out = outputPath\(/, `output path not from outputPath: ${o}`);
 
   const mainSource = fs.readFileSync(path.join(__dirname, '..', 'src', 'main.cjs'), 'utf8');
   assert.doesNotMatch(mainSource, /fs\.(unlink|rm|rename|writeFile)/, 'main must not touch the filesystem at all');
@@ -76,12 +84,19 @@ test('nothing in the app writes anywhere but the output path', () => {
     'the engine hands paths to ffmpeg and never writes files itself');
 });
 
-test('a real encode leaves the original byte for byte identical', { timeout: 300000 }, async () => {
+test('a real encode leaves the original byte for byte identical', { timeout: 300000 }, async (t) => {
+  // The app's own resolver, so this follows the vendor naming instead of a
+  // stale copy of it that made this test pass without ever running.
+  const binaries = require('../src/binaries.cjs');
   const vendor = path.join(__dirname, '..', 'vendor', 'ffmpeg');
-  const exe = process.platform === 'win32' ? '.exe' : '';
-  const FFMPEG = path.join(vendor, `ffmpeg-${process.arch}${exe}`);
-  const FFPROBE = path.join(vendor, `ffprobe-${process.arch}${exe}`);
-  if (!fs.existsSync(FFMPEG) || !fs.existsSync(FFPROBE)) return; // no binaries, nothing to prove here
+  let FFMPEG, FFPROBE;
+  try {
+    FFMPEG = binaries.resolve('ffmpeg', [vendor]);
+    FFPROBE = binaries.resolve('ffprobe', [vendor]);
+  } catch {
+    t.skip('no ffmpeg bundled or on PATH');
+    return;
+  }
 
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'justfits-safety-'));
   try {

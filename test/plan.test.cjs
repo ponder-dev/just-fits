@@ -133,3 +133,12 @@ test('image plans get progressively harsher', () => {
   assert.ok(last.width < first.width, 'and the image shrinks');
   assert.equal(last.lastResort, true);
 });
+
+test('Windows device names are spotted in any case, with or without an extension', () => {
+  for (const name of ['con', 'CON.mp4', 'nul.zip', 'Aux.tar.gz', 'com1.mp4', 'LPT9', 'nul. ', 'dir/prn.mp4', 'dir\\con.mp4']) {
+    assert.equal(plan.isDeviceName(name), true, name);
+  }
+  for (const name of ['console.mp4', 'com0.mp4', 'com10.mp4', 'my-con.mp4', 'con/clip.mp4', '', null]) {
+    assert.equal(plan.isDeviceName(name), false, String(name));
+  }
+});

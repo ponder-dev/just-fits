@@ -212,6 +212,8 @@ input[type=number]:focus { outline: none; border-color: var(--accent); }
 }
 .result-card.over { border-left-color: var(--bad); }
 .result { margin: 0 0 4px; font-size: 17px; font-weight: 600; }
+/* A Windows folder path has no spaces to break at, and is worth copying. */
+.where { word-break: break-all; user-select: text; }
 
 .error {
   margin-top: 20px;

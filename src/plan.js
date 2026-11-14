@@ -215,6 +215,22 @@ function planImage({ targetBytes, width, height, attempt = 0 }) {
   };
 }
 
+/*
+ * Windows opens a device, not a file, for these names with any extension and
+ * in any case (con.mp4, NUL, lpt1.txt), so the result would vanish while the
+ * command reported success. Refused on every platform, since a script written
+ * on a Mac may well be run on Windows. Windows also ignores trailing dots and
+ * spaces, so "nul. " is NUL too.
+ */
+function isDeviceName(outPath) {
+  if (typeof outPath !== 'string') return false;
+  // Windows reads a name only up to its first dot and ignores spaces before
+  // it, so "CON .mp4" and "con.take2.mp4" open the device as surely as "CON".
+  // The same rule in every tool, so a name refused by one is refused by all.
+  const head = outPath.split(/[\\/]/).pop().split('.')[0].replace(/ +$/, '');
+  return /^(con|prn|aux|nul|conin\$|conout\$|com[1-9¹²³]|lpt[1-9¹²³])$/i.test(head);
+}
+
 module.exports = {
   MB,
   BASE64,
@@ -226,4 +242,5 @@ module.exports = {
   scaleToShortEdge,
   audioFor,
   bppFor,
+  isDeviceName,
 };

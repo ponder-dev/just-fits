@@ -18,10 +18,13 @@ const path = require('node:path');
 
 const engine = require('../src/engine.cjs');
 
+const binaries = require('../src/binaries.cjs');
+
+// The app's own resolver, so this test follows the vendor naming the app
+// uses instead of keeping a second copy of it that can drift.
 const vendor = path.join(__dirname, '..', 'vendor', 'ffmpeg');
-const exe = process.platform === 'win32' ? '.exe' : '';
-const FFMPEG = path.join(vendor, `ffmpeg-${process.arch}${exe}`);
-const FFPROBE = path.join(vendor, `ffprobe-${process.arch}${exe}`);
+const FFMPEG = binaries.resolve('ffmpeg', [vendor]);
+const FFPROBE = binaries.resolve('ffprobe', [vendor]);
 const MB = 1000 * 1000;
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'justfits-test-'));
@@ -108,6 +111,8 @@ test('cancelling stops the encode and reports it', { timeout: 300000 }, async ()
   setTimeout(() => ctl.cancel(), 700);
 
   await assert.rejects(work, (err) => err.cancelled === true);
+  // A half-written file under a "fits" name would look sendable.
+  assert.ok(!fs.existsSync(path.join(dir, 'cancel-fits.mp4')), 'cancel left a partial output behind');
 });
 
 process.on('exit', () => fs.rmSync(dir, { recursive: true, force: true }));

@@ -11,7 +11,7 @@
 
 const assert = require('node:assert/strict');
 const { test } = require('node:test');
-const { execFileSync, execSync } = require('node:child_process');
+const { execFileSync, execSync, spawnSync } = require('node:child_process');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
@@ -77,7 +77,11 @@ test('stdin in, stdout out, and stdout carries only the file', { timeout: 300000
   if (!FFMPEG) return;
   const src = makeClip('pipe.mp4');
   const out = path.join(dir, 'piped.mp4');
-  execSync(`cat ${JSON.stringify(src)} | ${JSON.stringify(process.execPath)} ${JSON.stringify(CLI)} --to 2MB > ${JSON.stringify(out)} 2>/dev/null`);
+  // Piped through node rather than a shell, so it runs on Windows too: cat and
+  // 2>/dev/null are POSIX only, and this test failed on the first Windows run.
+  const r = spawnSync(process.execPath, [CLI, '--to', '2MB'], { input: fs.readFileSync(src), maxBuffer: 64 << 20 });
+  assert.equal(r.status, 0, String(r.stderr));
+  fs.writeFileSync(out, r.stdout);
   const bytes = fs.statSync(out).size;
   assert.ok(bytes > 0 && bytes <= 2_000_000, `piped output was ${bytes} bytes`);
   // Not just any bytes: it has to be a real mp4

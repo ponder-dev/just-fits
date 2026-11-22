@@ -11,6 +11,16 @@ vendor/
 TODO.md
 PLAN.md
 
-# The testing house stays on this machine, in every repo (TJ, 2026-11-13).
+# The testing house stays on this machine, in every repo (decided 2026-11-13).
 # bin/prepublish refuses a push that carries it.
 .administration/
+
+# The vector is the single source of truth and the only icon artifact in git.
+# `npm run icon` rebuilds the png, the iconset (every size rendered from the
+# vector) and the icns from it, and the release workflow runs that per platform
+# before packaging: mac gets the icns from iconutil, linux and windows get the
+# png. Nothing here is committed that a build can produce.
+build/icon.png
+build/icon.icns
+build/icon.iconset/
+build/icon.ico

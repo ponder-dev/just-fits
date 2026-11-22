@@ -9,7 +9,9 @@ directories:
 files:
   - src/**/*
   - package.json
-  # The GPL wants its terms travelling with the binary, not just sitting in
+  # The skill ships in the app too, for the start screen's Copy skill.
+  - agents/skills/**/*
+  # The GPL wants its terms traveling with the binary, not just sitting in
   # the repo for whoever thinks to look.
   - LICENSE
   - THIRD-PARTY-NOTICES.md
@@ -19,6 +21,8 @@ files:
 # below, or a mac build would carry 290MB of Windows exe it can never run.
 
 asar: true
+
+afterPack: scripts/linux-after-pack.cjs
 
 # No update feed. This is meant to be downloaded once and left alone, so it
 # must never phone home looking for a newer version.
@@ -64,6 +68,19 @@ linux:
   # to be renamed by hand).
   artifactName: JustFits-linux-x86_64.${ext}
   icon: build/icon.png
+  # The binary is justfits-app so that ./justfits can be the launcher the
+  # tar.gz needs (scripts/linux-after-pack.cjs). The AppImage runs the binary
+  # directly.
+  executableName: justfits-app
+  # Names the AppImage's own .desktop file after desktopName in package.json
+  # (com.ponderdev.justfits.desktop), the name its icon goes by too.
+  syncDesktopName: true
+  # The window's app id on Linux is the tool's own name (the kit's window.cjs),
+  # so a dock with no menu entry still says "Just Fits". A menu entry finds the
+  # window by this.
+  desktop:
+    entry:
+      StartupWMClass: Just Fits
   category: AudioVideo
   synopsis: Make a file small enough to send
   target:
@@ -76,11 +93,20 @@ linux:
       to: ffmpeg
       filter: ["*-linux-*"]
 
+# The AppImage's static runtime (decided 2026-11-20): the older runtime needs
+# libfuse2, which a fresh Ubuntu 24.04 does not have, so the AppImage would not
+# open there. Its launcher also starts the app without Chromium's sandbox only
+# where the system forbids the user namespaces the sandbox needs (24.04's
+# AppArmor rule), instead of failing to start.
+toolsets:
+  appimage: "1.0.3"
+
 appImage:
   artifactName: JustFits-linux-x86_64.${ext}
 
 win:
-  icon: build/icon.png
+  # The art filling the square, every size from the vector (scripts/icons.cjs).
+  icon: build/icon.ico
   target:
     - target: nsis
       arch: [x64]

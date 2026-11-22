@@ -142,3 +142,24 @@ test('Windows device names are spotted in any case, with or without an extension
     assert.equal(plan.isDeviceName(name), false, String(name));
   }
 });
+
+test('the too-long sentence is one, for the window and the command line', () => {
+  assert.equal(plan.lengthNote({ hopeless: false, rough: false }, '10MB'), '');
+  assert.match(plan.lengthNote({ hopeless: false, rough: true }, '10MB'), /^This is long for 10MB, so the picture will be softer/);
+  assert.match(plan.lengthNote({ hopeless: true, rough: true }, '10MB'), /^This is too long for 10MB: expect a small, blurry picture/);
+  assert.match(plan.lengthNote({ hopeless: true }), /too long for that size/);
+});
+
+test('an ffmpeg complaint names the person\'s file, never a temp file', () => {
+  const engine = require('../src/engine.cjs');
+  const err = engine.plainError(new Error('/tmp/justfits-1-2-0.log: Permission denied\n/tmp/justfits-x/input: Invalid data'),
+    [['/tmp/justfits-1-2', 'its working file'], ['/tmp/justfits-x/input', 'what arrived on stdin']]);
+  assert.equal(err.message, 'its working file: Permission denied\nwhat arrived on stdin: Invalid data');
+});
+
+test('a Cancel pressed before ffmpeg starts is not lost', async () => {
+  const engine = require('../src/engine.cjs');
+  const ctl = engine.control();
+  ctl.cancel();
+  await assert.rejects(engine.run(process.execPath, ['-e', 'setTimeout(()=>{}, 60000)'], { ctl }), (e) => e.cancelled === true);
+});

@@ -4,78 +4,54 @@
 <meta charset="utf-8">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:;">
 <title>Just Fits</title>
+<link rel="stylesheet" href="kit/kit.css">
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
 <div class="titlebar"></div>
 
 <div id="app">
-<div class="view">
+<main class="k-utility">
 
-  <h1>Just Fits</h1>
-  <p class="sub">Makes a file small enough to send. Nothing leaves this machine.</p>
+  <!-- The start screen and the file row come from the kit (Kit.start in app.js).
+       What follows it shows only once a file is in. -->
+  <div id="start"></div>
 
-  <section id="drop" class="dropzone">
-    <svg class="dz-icon" viewBox="0 0 48 48" aria-hidden="true">
-      <rect x="6" y="11" width="36" height="26" rx="4"/>
-      <path d="M20 20l9 4-9 4z"/>
-    </svg>
-    <p class="dz-title">Drop a file in</p>
-    <p class="dz-sub">or <button type="button" id="browse" class="linky">choose a file</button></p>
-  </section>
-
-  <section id="file" class="settings" hidden>
-    <div class="field">
-      <p class="name" id="name"></p>
-      <p class="hint mono" id="facts"></p>
-    </div>
-  </section>
-
-  <section class="settings">
-    <div class="field">
-      <label for="target">Where is it going</label>
-      <select id="target"></select>
-      <p class="hint" id="why"></p>
-    </div>
-    <div class="field">
-      <label for="custom">Or aim for a size yourself</label>
-      <div class="row">
-        <input type="number" id="custom" min="1" max="20000" step="1" placeholder="25">
-        <span class="muted">MB</span>
-        <span class="pill" id="aim"></span>
+  <div id="after" class="after-file">
+    <section class="k-section">
+      <div class="k-field">
+        <label for="target">Where is it going</label>
+        <select id="target"></select>
+        <p class="hint" id="why"></p>
       </div>
-    </div>
-  </section>
+      <div class="k-field">
+        <label for="custom">Or aim for a size yourself</label>
+        <div class="row">
+          <input type="number" id="custom" class="k-input k-number" min="1" max="20000" step="1" placeholder="25">
+          <span class="k-unit">MB</span>
+        </div>
+      </div>
+      <!-- Only with a folder in: its results go into a new folder beside it
+           unless this is ticked (kept through Kit.store). -->
+      <div class="k-field" id="where-field" hidden>
+        <label class="k-check"><input type="checkbox" id="beside"> Save next to the originals instead</label>
+        <p class="hint" id="where-hint"></p>
+      </div>
+    </section>
 
-  <button type="button" id="go" class="btn btn-primary btn-wide" disabled>Compress</button>
+    <p class="k-note" id="aim"></p>
+    <button type="button" id="go" class="btn btn-primary btn-wide k-action">Compress</button>
 
-  <section id="working" class="working" hidden>
-    <div class="bar-track"><span id="fill"></span></div>
-    <p class="stage"><span id="stage">Working</span><span id="pct"></span></p>
-    <p class="hint" id="attempt"></p>
-    <button type="button" id="cancel" class="btn btn-ghost spaced">Cancel</button>
-  </section>
+    <!-- Working, done and failed, from the kit (Kit.run in app.js). -->
+    <div id="run"></div>
+  </div>
 
-  <section id="done" class="result-card" hidden>
-    <p class="result" id="result"></p>
-    <p class="hint mono" id="detail"></p>
-    <p class="hint where" id="where"></p>
-    <button type="button" id="reveal" class="linky spaced">Show me the file</button>
-  </section>
-
-  <p class="error" id="error" hidden></p>
-
+</main>
 </div>
-</div>
 
-<footer class="app-footer">
-  <span>Nothing is uploaded. It all happens here.</span>
-  <span class="foot-links">
-    <button type="button" id="site" class="mark-link">Powered by <span class="mark">Ponder<b>Dev</b></span></button>
-    <button type="button" id="licences" class="mark-link">Licences and credits</button>
-  </span>
-</footer>
+<footer id="footer"></footer>
 
+<script src="kit/kit.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

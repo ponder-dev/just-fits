@@ -9,9 +9,14 @@
 
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 
+const { render } = createRequire(import.meta.url)('./markdown.cjs');
+
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+// The kit it is built with, said on the page (decided 2026-11-20).
+const kitVersion = JSON.parse(await fs.readFile(path.join(root, 'kit.lock'), 'utf8')).kit;
 const esc = (s) => s.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
 
 const notices = await fs.readFile(path.join(root, 'THIRD-PARTY-NOTICES.md'), 'utf8');
@@ -35,7 +40,18 @@ const html = `<!DOCTYPE html>
          font:13px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
   h1 { font-size:18px; margin:0 0 4px; }
   h2 { font-size:14px; margin:26px 0 6px; }
-  pre.notices { white-space:pre-wrap; font:inherit; color:#c3c8d8; }
+  .notices { color:#c3c8d8; }
+  .notices h2 { font-size:14px; margin:26px 0 6px; color:#eceef5; }
+  .notices h3 { font-size:13px; margin:18px 0 4px; color:#eceef5; }
+  .notices h2:first-child { font-size:15px; margin-top:0; }
+  .notices p, .notices ul, .notices ol { margin:6px 0; }
+  .notices li { margin:3px 0; }
+  .notices code { font:11.5px ui-monospace, Menlo, monospace; background:#191b24; padding:1px 4px; border-radius:4px; }
+  .notices pre.code { background:#191b24; border:1px solid #2c2f3d; border-radius:9px; padding:10px 14px; overflow:auto; font:11.5px/1.5 ui-monospace, Menlo, monospace; }
+  .notices hr { border:0; border-top:1px solid #2c2f3d; margin:20px 0; }
+  .notices table { border-collapse:collapse; width:100%; margin:8px 0; font-size:12px; }
+  .notices th, .notices td { border:1px solid #2c2f3d; padding:6px 9px; text-align:left; vertical-align:top; }
+  .notices th { background:#191b24; }
   details { border:1px solid #2c2f3d; border-radius:9px; margin:8px 0; background:#191b24; }
   summary { padding:9px 14px; cursor:pointer; font-weight:600; }
   details pre { margin:0; padding:0 14px 14px; max-height:340px; overflow:auto;
@@ -43,7 +59,8 @@ const html = `<!DOCTYPE html>
 </style></head>
 <body>
 <h1>Licences and credits</h1>
-<pre class="notices">${esc(notices)}</pre>
+<p>Built with the PonderDev kit ${kitVersion}, the parts every Just tool shares.</p>
+<div class="notices">${render(notices)}</div>
 <h2>Full licence texts</h2>
 ${sections.join('\n')}
 </body></html>

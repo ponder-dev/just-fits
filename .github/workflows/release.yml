@@ -108,15 +108,15 @@ jobs:
             window: xvfb-run --auto-servernum npx electron --no-sandbox test/window.test.cjs
             # Same two reasons as the window test: no display, no setuid sandbox.
             # Linux packs build/icon.png, so it needs the raster and not the icns.
-            icon: node scripts/make-icon.mjs && xvfb-run --auto-servernum npx electron --no-sandbox scripts/icons.cjs
+            icon: npm run icon:svg && xvfb-run --auto-servernum npx electron --no-sandbox scripts/icons.cjs
           - os: windows-latest
             name: windows
             build: npm run dist:win
-            # The npm script uses "env -u", which Windows has no answer for,
-            # so the same test is run directly here.
-            window: npx electron test/window.test.cjs
-            # Windows has no `env` for the -u, so icon:raster is inlined without it.
-            icon: node scripts/make-icon.mjs && npx electron scripts/icons.cjs
+            # The npm scripts start Electron through scripts/electron.cjs,
+            # which works on Windows too.
+            window: npm run test:window
+            # Windows packs build/icon.png, so it needs the raster and not the icns.
+            icon: npm run icon:svg && npm run icon:raster
 
     runs-on: ${{ matrix.os }}
 
@@ -159,18 +159,13 @@ jobs:
       - name: The window, offscreen
         run: ${{ matrix.window }}
 
-
       # The icon is generated from build/icon.svg on every platform, because the
       # svg is now the only icon artifact in git. Nothing downstream is hand
       # edited and nothing is committed that a build can produce. A failure here
       # stops the run rather than packaging with electron-builder's default icon,
       # which is the silent version of this failure and the one that ships.
-      # scripts/make-icns.sh sizes the iconset with ImageMagick, which the
-      # Mac runner does not have.
-      - name: ImageMagick, for the Mac icon
-        if: runner.os == 'macOS'
-        run: brew install imagemagick
-
+      # Every iconset size is rendered from the vector by scripts/icons.cjs;
+      # ImageMagick is no longer needed.
       - name: Build the icon from its vector
         run: ${{ matrix.icon }}
 
@@ -294,20 +289,23 @@ jobs:
         run: npm install -g npm@latest
 
       # The repo's package is the desktop app's; npm gets the command line
-      # under the PonderDev scope, with nothing it does not need.
+      # under the PonderDev scope, with nothing it does not need. Its one
+      # postinstall stays: it links the tool's Claude skill on a global install
+      # (scripts/link-skill.cjs). No skill, no release.
       - name: Shape the package for npm
         run: |
           npm pkg set name=@ponderdev/justfits
-          npm pkg delete private devDependencies scripts.postinstall
+          npm pkg delete private devDependencies
+          # Read with node, not npm pkg get: npm 12 prints that without quotes.
+          test "$(node -p "require('./package.json').scripts.postinstall")" = 'node scripts/link-skill.cjs'
           node src/cli.cjs --version
-          npm pack --dry-run
+          npm pack --dry-run 2>&1 | tee pack.txt
+          grep -q 'agents/skills/justfits/SKILL.md' pack.txt
+          grep -q 'scripts/link-skill.cjs' pack.txt
 
-      # npm only lets trusted publishing be set up on a package that already
-      # exists, so the very first version goes out with a short-lived token
-      # kept as the NPM_FIRST_PUBLISH secret, which is then deleted. Every
-      # version after that uses trusted publishing and no token at all.
+      # Trusted publishing (OIDC, id-token: write above): no token anywhere. A
+      # token in the environment would win over OIDC and fail, so there is none.
+      # Provenance comes with it.
       - name: Publish
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_FIRST_PUBLISH }}
-        run: npm publish --access public --provenance
+        run: npm publish --access public
 

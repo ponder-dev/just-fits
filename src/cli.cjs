@@ -19,6 +19,7 @@ const path = require('node:path');
 const plan = require('./plan.js');
 const engine = require('./engine.cjs');
 const binaries = require('./binaries.cjs');
+const { scan, places } = require('./scan.cjs');
 
 // Inside a packaged app the extras sit in the app's resources folder (as
 // extraResources put them), not in vendor/. Run that way, by the tool belt or
@@ -27,6 +28,9 @@ const binaries = require('./binaries.cjs');
 const packaged = (name) => (process.resourcesPath ? [path.join(process.resourcesPath, name)] : []);
 const VENDOR = [...packaged('ffmpeg'), path.join(__dirname, '..', 'vendor', 'ffmpeg')];
 const MB = 1000 * 1000;
+// Names a video must not be given with -o: it comes out as an MP4, so a .mov or
+// a .png would be a file named for what it is not.
+const VIDEO_WRONG = ['.jpg', '.jpeg', '.png', '.webp', '.gif', '.mov', '.mkv', '.webm', '.avi', '.heic'];
 
 function human(bytes) {
   if (bytes >= 1000 * MB) return (bytes / 1000 / MB).toFixed(1) + 'GB';
@@ -42,9 +46,10 @@ const VERSION = require('../package.json').version;
  */
 const OPTIONS = [
   { flags: ['--to'], name: 'to', metavar: 'target', type: 'string', default: 'discord', help: 'where it is going, or a plain size like 25MB' },
-  { flags: ['-o', '--output', '--out'], name: 'output', metavar: 'path', type: 'path', default: null, help: 'where to write it. "-" means stdout. default: beside the input as name-fits.mp4' },
+  { flags: ['-o', '--output', '--out'], name: 'output', metavar: 'path', type: 'path', default: null, help: 'where to write it (one file). "-" means stdout. default: beside the input as name-fits.mp4; a folder\'s go into a new "folder (fitted)" beside it' },
   { flags: ['--json'], name: 'json', type: 'boolean', help: 'results as JSON lines on stdout (stderr when the file goes to stdout)' },
   { flags: ['--progress'], name: 'progress', type: 'boolean', help: 'with --json, progress as JSON lines on stderr' },
+  { flags: ['--beside'], name: 'beside', type: 'boolean', help: 'with a folder, save each result beside its original as name-fits instead of in a new "folder (fitted)"' },
   { flags: ['--dry-run'], name: 'dry-run', type: 'boolean', help: 'say what would happen and write nothing' },
   { flags: ['-q', '--quiet'], name: 'quiet', type: 'boolean', help: 'nothing on stderr but errors' },
   { flags: ['-h', '--help'], name: 'help', type: 'boolean', help: 'this, and nothing else' },
@@ -56,6 +61,7 @@ const EXIT = [
   { code: 0, meaning: 'Done, or it already fit.' },
   { code: 1, meaning: 'Failed. Nothing usable was written.' },
   { code: 2, meaning: 'Usage: a bad option, a missing value, an unknown target or a missing input. Nothing was started.' },
+  { code: 3, meaning: 'Several files: some were done and some failed. Each file has its own line under --json.' },
   { code: 4, meaning: 'Done, but still over the target after every try. The closest result was written.' },
   { code: 129, meaning: 'Stopped by a hang-up. Part files removed.' },
   { code: 130, meaning: 'Stopped with Ctrl-C. Part files removed.' },
@@ -72,7 +78,14 @@ function usage() {
 Makes a file small enough to send.
 
   justfits <file> [options]
+  justfits <file> <file> ... [options]
+  justfits <folder> [options]
   cat clip.mp4 | justfits --to discord > small.mp4
+
+Several files, or a folder (its subfolders too), are each fitted on their
+own to the same target. Files are saved beside their originals; a folder's
+go into a new folder beside it, "folder (fitted)", with the files that
+already fit copied in so it is complete (--beside: beside each original).
 
 Options
 ${opts}
@@ -80,7 +93,8 @@ ${opts}
 Targets
 ${targets}
 
-Exit status: 0 done, 1 failed, 2 usage, 4 still over the target after every try.
+Exit status: 0 done, 1 failed, 2 usage, 3 some of several failed,
+4 still over the target after every try.
 
 Your original is only ever read. Nothing is uploaded.`;
 }
@@ -92,16 +106,18 @@ function describe() {
     product: 'Just Fits',
     version: VERSION,
     licence: require('../package.json').license,
+    // The kit the app is built with (decided 2026-11-20), from the kit's own copy.
+    kit: require('./kit/scan.cjs').VERSION,
     command: 'justfits',
     job: 'Make a video or image small enough to send, under an exact size limit.',
     network: false,
-    accepts: { mediaTypes: ['video/*', 'image/*'], extensions: ['.mp4', '.mov', '.m4v', '.mkv', '.webm', '.avi', '.jpg', '.jpeg', '.png', '.webp', '.gif'] },
+    accepts: { mediaTypes: ['video/*', 'image/*'], extensions: ['.mp4', '.mov', '.m4v', '.mkv', '.webm', '.avi', '.jpg', '.jpeg', '.png', '.heic', '.webp', '.gif'] },
     emits: { mediaTypes: ['video/mp4', 'image/jpeg'], extensions: ['.mp4', '.jpg'] },
-    arguments: [{ name: 'file', type: 'path', required: false, repeatable: false, help: 'the file to shrink. "-" or none reads stdin' }],
+    arguments: [{ name: 'file', type: 'path', required: false, repeatable: true, help: 'the file to shrink, or several, or a folder of them (subfolders too). "-" or none reads stdin' }],
     options: OPTIONS.map((o) => (o.name === 'to' ? { ...o, values: plan.TARGETS.map((t) => t.id), valuesOpen: true } : o)),
     targets: plan.TARGETS.map((t) => ({ id: t.id, bytes: t.bytes, label: t.label })),
-    output: { video: 'name-fits.mp4 beside the input', picture: 'name-fits.jpg beside the input', taken: 'name-fits 2.mp4, then 3, never over an existing file' },
-    result: { fields: { input: 'path', output: 'path', path: 'path', before: 'integer', after: 'integer', target: 'integer', attempts: 'integer', width: 'integer', height: 'integer' } },
+    output: { video: 'name-fits.mp4 beside the input', picture: 'name-fits.jpg beside the input', taken: 'name-fits 2.mp4, then 3, never over an existing file', withO: '-o names the result: a video must end in .mp4 and a picture in .jpg. A file that already fits is copied to -o as it is and reported as a result line, not a skip, and may keep its own extension', several: 'each file fitted on its own; files named on their own beside their originals, a folder\'s into a new folder beside it, "folder (fitted)" (then "folder (fitted) 2"), subfolders mirrored, each result named name-fits as beside its original, files that already fit copied in under that name so the folder is complete, the folder itself untouched; --beside puts every result beside its original instead; -o and stdin take one file only' },
+    result: { fields: { input: 'path', output: 'path', path: 'path', before: 'integer', after: 'integer', target: 'integer', attempts: 'integer', width: 'integer', height: 'integer', notes: 'array of strings, present when the video is long for the target (a small, blurry or softer picture)' } },
     // The desktop app carries ffmpeg; the npm command line uses the one on the
     // PATH, and says how to install it if there is none.
     needs: [{ id: 'ffmpeg', kind: 'binary', bundled: 'in the desktop app; the npm install uses ffmpeg from the PATH' }],
@@ -122,8 +138,11 @@ function parseTarget(value) {
   const preset = plan.TARGETS.find((t) => t.id === value.toLowerCase());
   if (preset) return preset;
 
-  const m = /^(\d+(?:\.\d+)?)\s*(g|m|k)?b?$/i.exec(value.trim());
+  const m = /^(\d+(?:\.\d+)?)\s*(?:(g|m|k)b?|(b))?$/i.exec(value.trim());
   if (!m) throw new UsageError(`Unknown target "${value}". Try a preset from --help, or a size like 25MB.`);
+  // "8b" is eight bytes, which nothing fits in, and it used to be read as 8MB.
+  // Refused rather than guessed: 8MB and 8KB are both one letter away.
+  if (m[3]) throw new UsageError(`Target "${value}" is in bytes. Did you mean ${m[1]}MB or ${m[1]}KB?`);
   const n = Number(m[1]);
   const unit = (m[2] || 'm').toLowerCase();
   const bytes = Math.round(n * (unit === 'g' ? 1000 * MB : unit === 'k' ? 1000 : MB));
@@ -142,18 +161,19 @@ function needValue(flag, value, dashOk) {
 }
 
 function parseArgs(argv) {
-  const opts = { file: null, to: null, out: null, json: false, quiet: false, progress: false, dryRun: false };
+  const opts = { file: null, files: [], to: null, out: null, json: false, quiet: false, progress: false, dryRun: false, beside: false };
   let positional = false;
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (positional || a === '-' || !a.startsWith('-')) {
-      if (opts.file !== null) throw new UsageError('Only one input file at a time');
-      opts.file = a;
+      opts.files.push(a);
+      if (opts.file === null) opts.file = a;
     }
     else if (a === '--') positional = true;
     else if (a === '--json') opts.json = true;
     else if (a === '--progress') opts.progress = true;
     else if (a === '--dry-run') opts.dryRun = true;
+    else if (a === '--beside') opts.beside = true;
     else if (a === '-q' || a === '--quiet') opts.quiet = true;
     else if (a === '--to') opts.to = needValue(a, argv[++i], false);
     else if (a === '-o' || a === '--out' || a === '--output') opts.out = needValue(a, argv[++i], true);
@@ -221,12 +241,21 @@ const report = {
   line(obj) { if (this.on) this.stream.write(JSON.stringify(obj) + '\n'); },
   result(obj) { this.counts.results++; this.line({ type: 'result', ...obj }); },
   skip(obj) { this.counts.skipped++; this.line({ type: 'skip', ...obj }); },
-  error(code, message) { this.counts.failed++; this.line({ type: 'error', ok: false, code, message }); },
+  error(code, message, input) { this.counts.failed++; this.line({ type: 'error', ok: false, code, message, ...(input ? { input } : {}) }); },
   done(exit) { this.line({ type: 'done', ok: exit === 0, ...this.counts, exit }); },
 };
 
 // Files to remove if a signal stops the run before it finishes.
 const cleanup = new Set();
+// A results folder made for the file being fitted ([dir, folder]), removed on
+// a signal only if it is still empty.
+let emptyIfStopped = null;
+function removeIfEmpty([dir, folder]) {
+  for (; dir.startsWith(folder); dir = path.dirname(dir)) {
+    try { fs.rmdirSync(dir); } catch { break; }
+    if (dir === folder) break;
+  }
+}
 
 async function main(argv) {
   // Answered before anything else is looked at: a bad option beside them still
@@ -239,6 +268,13 @@ async function main(argv) {
   const opts = parseArgs(argv);
 
   const target = parseTarget(opts.to);
+
+  // Several inputs, or a folder: each one fitted on its own (fitMany). One file
+  // goes the way it always has, below, so its output and JSON are unchanged.
+  const isFolder = (p) => { try { return fs.statSync(p).isDirectory(); } catch { return false; } };
+  if (opts.files.length > 1 || (opts.files.length === 1 && opts.files[0] !== '-' && isFolder(opts.files[0]))) {
+    return fitMany(opts, target);
+  }
 
   // Piped input has to be buffered, because two-pass encoding reads the input
   // twice and a pipe cannot be rewound. Said plainly rather than hidden.
@@ -275,9 +311,27 @@ async function main(argv) {
     try {
       info = await engine.probe(ffprobe, input);
     } catch (err) {
+      // A file it can read but will not shrink says why in its own words.
+      if (err.code === 'animated-webp') throw err;
       // ffmpeg's own words ("Invalid data found when processing input") say
       // nothing to a person. The same sentence the window uses.
       throw Object.assign(new Error(`${fromStdin ? 'What arrived on stdin' : path.basename(input)} is not a video or picture that Just Fits can read.`), { code: 'not-media' });
+    }
+    // A picture comes out as a JPEG and a video as an MP4. Asked for the other,
+    // the encode would fail late or write a file named for what it is not. A
+    // file that already fits is copied as it is, so it may keep its own kind of
+    // name (an already small PNG to copy.png). Stdin has no name of its own, and
+    // the temp file it is buffered into must not turn up in a sentence.
+    if (outPath) {
+      const ext = path.extname(outPath).toLowerCase();
+      const same = !fromStdin && ext === path.extname(input).toLowerCase();
+      const called = fromStdin ? 'What arrived on stdin' : path.basename(input);
+      if (info.kind === 'image' && !['.jpg', '.jpeg'].includes(ext) && !(same && info.bytes <= target.bytes)) {
+        throw new UsageError(`${called} is a picture, so it comes out as a JPEG. Give -o a name ending in .jpg.`);
+      }
+      if (info.kind === 'video' && VIDEO_WRONG.includes(ext) && !(same && info.bytes <= target.bytes)) {
+        throw new UsageError(`${called} is a video, so it comes out as an MP4. Give -o a name ending in .mp4.`);
+      }
     }
     const fits = info.bytes <= target.bytes && !toStdout;
     if (opts.dryRun) {
@@ -310,6 +364,16 @@ async function main(argv) {
       return 0;
     }
 
+    // Too long for the target at any quality worth having: say so before
+    // minutes of encoding, not after. It still tries, and exit 4 says if it
+    // stayed over.
+    const notes = [];
+    if (info.kind === 'video') {
+      const note = plan.lengthNote(plan.planVideo({ ...info, targetBytes: target.bytes }), human(target.bytes));
+      if (note) notes.push(note);
+      if (notes.length && !report.on && !opts.quiet) process.stderr.write(notes[0] + '\n');
+    }
+
     let last = '';
     const onProgress = ({ stage, progress }) => {
       if (report.on && opts.progress) {
@@ -321,7 +385,7 @@ async function main(argv) {
       if (line !== last) { process.stderr.write(line); last = line; }
     };
 
-    const args = { ffmpeg, file: input, info, targetBytes: target.bytes, onProgress };
+    const args = { ffmpeg, file: input, info, targetBytes: target.bytes, onProgress, called: fromStdin ? 'what arrived on stdin' : undefined };
     // Writing to stdout still encodes to a real file first, for the same
     // reason: the encoder needs somewhere it can seek.
     if (toStdout) { args.outDir = encodeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'justfits-out-')); cleanup.add(encodeDir); }
@@ -351,6 +415,7 @@ async function main(argv) {
       before: info.bytes, after: result.bytes, bytes: result.bytes,
       target: target.bytes, attempts: result.attempts,
       width: result.plan.width, height: result.plan.height,
+      ...(notes.length ? { notes } : {}),
     });
     if (!report.on && !opts.quiet) {
       const saved = Math.round((1 - result.bytes / info.bytes) * 100);
@@ -366,6 +431,144 @@ async function main(argv) {
   }
 }
 
+/*
+ * Several files, or a folder of them: each fitted on its own to the same
+ * target, one after another: a file named on its own beside its original, a
+ * folder's into a new "folder (fitted)" beside it (--beside: beside each
+ * original instead). Every file gets its own
+ * JSON line, a result, a skip or an error with its input, so one that fails
+ * does not stop the rest. Exit 0 when all fit, 4 when none failed but some
+ * stayed over, 3 when some failed and 1 when all did.
+ */
+async function fitMany(opts, target) {
+  if (opts.out) throw new UsageError('-o names one file. With several files or a folder, each result is saved beside its original.');
+  if (opts.files.includes('-')) throw new UsageError('stdin ("-") is one file on its own, and cannot be mixed with other inputs.');
+  const found = await scan(opts.files);
+  if (found.missing.length) throw new UsageError(`No such file: ${found.missing[0]}`);
+  if (!found.files.length) throw new UsageError(`There are no videos or pictures in ${opts.files.join(', ')}.`);
+
+  const ffmpeg = binaries.resolve('ffmpeg', VENDOR);
+  const ffprobe = binaries.resolve('ffprobe', VENDOR);
+  const say = (line) => { if (!report.on && !opts.quiet) process.stderr.write(line + '\n'); };
+  const total = found.files.length;
+  const tally = { fitted: 0, over: 0, skipped: 0, failed: 0 };
+  const place = places({ beside: opts.beside });
+  const folders = new Set();
+
+  for (const [i, f] of found.files.entries()) {
+    const tag = `[${i + 1}/${total}] ${f.name}`;
+    let info;
+    try {
+      info = await engine.probe(ffprobe, f.path);
+    } catch (err) {
+      const animated = err.code === 'animated-webp';
+      const message = animated ? err.message : `${f.name} is not a video or picture that Just Fits can read.`;
+      report.error(animated ? 'animated-webp' : 'not-media', message, f.path);
+      tally.failed++;
+      say(`${tag}: ${message}`);
+      continue;
+    }
+
+    const fits = info.bytes <= target.bytes;
+    const where = place(f);
+    // Already small enough in a folder's results folder: copied in as it is,
+    // so the results folder holds the whole folder (decided 2026-11-20).
+    const copyIn = fits && Boolean(where.folder);
+    const ext = fits ? path.extname(f.path) : info.kind === 'image' ? '.jpg' : '.mp4';
+    if (opts.dryRun) {
+      const would = fits && !copyIn ? f.path : engine.outputPath(where.outDir ? path.join(where.outDir, f.name) : f.path, ext, fs.existsSync, where.suffix);
+      report.result({ ok: true, dryRun: true, input: f.path, output: would, before: info.bytes, target: target.bytes, fits });
+      say(`${tag}: ${fits ? `${human(info.bytes)} already fits. Nothing would change.` : `${human(info.bytes)} would be fitted under ${human(target.bytes)}.`}`);
+      continue;
+    }
+    if (fits) {
+      let output = f.path;
+      if (copyIn) {
+        try {
+          fs.mkdirSync(where.outDir, { recursive: true });
+          output = engine.outputPath(path.join(where.outDir, f.name), ext, fs.existsSync, where.suffix);
+          fs.copyFileSync(f.path, output, fs.constants.COPYFILE_EXCL);
+          folders.add(where.folder);
+        } catch (err) {
+          report.error('failed', String(err.message || err), f.path);
+          tally.failed++;
+          say(`${tag}: ${String(err.message || err)}`);
+          continue;
+        }
+      }
+      report.skip({
+        ok: true, skipped: true, path: output, input: f.path, output,
+        before: info.bytes, after: info.bytes, target: target.bytes, bytes: info.bytes,
+        reason: 'fits-already', ...(copyIn ? { copied: true } : {}),
+        message: `${human(info.bytes)} already fits under ${human(target.bytes)}.${copyIn ? ' Copied in as it is.' : ''}`,
+      });
+      tally.skipped++;
+      say(`${tag}: ${human(info.bytes)} already fits under ${human(target.bytes)}. ${copyIn ? `Copied in as it is.  ${output}` : 'Nothing to do.'}`);
+      continue;
+    }
+
+    const notes = [];
+    if (info.kind === 'video') {
+      const note = plan.lengthNote(plan.planVideo({ ...info, targetBytes: target.bytes }), human(target.bytes));
+      if (note) notes.push(note);
+    }
+
+    let last = '';
+    const onProgress = ({ stage, progress }) => {
+      if (report.on && opts.progress) {
+        process.stderr.write(JSON.stringify({ type: 'progress', stage, percent: Math.round(progress * 100), input: f.path, file: i + 1, files: total }) + '\n');
+        return;
+      }
+      if (opts.quiet || opts.json || !process.stderr.isTTY) return;
+      const line = `\r${tag} ${stage} ${Math.round(progress * 100)}%   `;
+      if (line !== last) { process.stderr.write(line); last = line; }
+    };
+
+    let result;
+    try {
+      if (where.outDir) fs.mkdirSync(where.outDir, { recursive: true });
+      if (where.folder) emptyIfStopped = [where.outDir, where.folder];
+      const args = { ffmpeg, file: f.path, info, targetBytes: target.bytes, onProgress, outDir: where.outDir, suffix: where.suffix };
+      result = info.kind === 'image' ? await engine.fitImage(args) : await engine.fitVideo(args);
+      emptyIfStopped = null;
+      if (where.folder) folders.add(where.folder);
+    } catch (err) {
+      // A results folder made for this file and left empty goes again.
+      if (where.folder) removeIfEmpty([where.outDir, where.folder]);
+      emptyIfStopped = null;
+      if (!opts.quiet && !opts.json && process.stderr.isTTY) process.stderr.write('\r\x1b[K');
+      report.error(err.code || 'failed', String(err.message || err), f.path);
+      tally.failed++;
+      say(`${tag}: ${String(err.message || err)}`);
+      continue;
+    }
+    if (!opts.quiet && !opts.json && process.stderr.isTTY) process.stderr.write('\r\x1b[K');
+
+    report.result({
+      ok: !result.over, path: result.path, input: f.path, output: result.path,
+      before: info.bytes, after: result.bytes, bytes: result.bytes,
+      target: target.bytes, attempts: result.attempts,
+      width: result.plan.width, height: result.plan.height,
+      ...(notes.length ? { notes } : {}),
+    });
+    if (result.over) tally.over++; else tally.fitted++;
+    const saved = Math.round((1 - result.bytes / info.bytes) * 100);
+    say(result.over
+      ? `${tag}: got to ${human(result.bytes)}, still over ${human(target.bytes)}.  ${result.path}`
+      : `${tag}: ${human(info.bytes)} to ${human(result.bytes)}, ${saved}% smaller.  ${result.path}`);
+  }
+
+  const bits = [`${tally.fitted} fitted`];
+  if (tally.skipped) bits.push(`${tally.skipped} already small enough`);
+  if (tally.over) bits.push(`${tally.over} still over ${human(target.bytes)}`);
+  if (tally.failed) bits.push(`${tally.failed} failed`);
+  if (!opts.dryRun) say(`${total} files: ${bits.join(', ')}.${folders.size ? ` Saved in ${[...folders].join(', ')}` : ''}`);
+
+  if (tally.failed === total) return 1;
+  if (tally.failed) return 3;
+  return tally.over ? 4 : 0;
+}
+
 // A reader that stops early (`| head`) is not an error worth a stack trace.
 process.stdout.on('error', (err) => {
   if (err.code === 'EPIPE') process.exit(0);
@@ -378,6 +581,7 @@ process.stdout.on('error', (err) => {
 for (const [sig, code] of [['SIGHUP', 129], ['SIGINT', 130], ['SIGTERM', 143]]) {
   process.on(sig, () => {
     for (const p of cleanup) { try { fs.rmSync(p, { recursive: true, force: true }); } catch (e) { /* gone already */ } }
+    if (emptyIfStopped) removeIfEmpty(emptyIfStopped);
     process.exit(code);
   });
 }

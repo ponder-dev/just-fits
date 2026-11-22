@@ -17,11 +17,13 @@ resolution, frame rate and stream layout that `src/plan.js` does its
 arithmetic on.
 
 - Project: <https://ffmpeg.org>, source at <https://github.com/FFmpeg/FFmpeg>
-- FFmpeg's core is **LGPL v2.1 or later**. The builds shipped here are
-  configured with `--enable-gpl` and `--enable-version3`, which pulls in the
-  GPL-licensed parts and moves the whole binary to **GPL v3 or later**.
+- FFmpeg's core is **LGPL v2.1 or later**. Every build shipped here is
+  configured with `--enable-gpl`, which pulls in the GPL-licensed parts and
+  moves the whole binary to the GPL. Builds that also carry
+  `--enable-version3` are **GPL v3 or later**; builds without it are **GPL v2
+  or later**. The table below says which is which.
 - Full text: `licenses/ffmpeg-license.txt`, and the GPL itself in
-  `licenses/gpl-3.0.txt`.
+  `licenses/gpl-3.0.txt` and `licenses/gpl-2.0.txt`.
 
 **On the command line, FFmpeg is not bundled at all.** The `justfits` command
 uses whatever `ffmpeg` and `ffprobe` are on your PATH, so the terms that apply
@@ -29,12 +31,20 @@ are those of the build your system installed, not of anything shipped here.
 Only the desktop app carries its own copy.
 
 **The bundled binaries are not built here and are not modified.** They are
-published builds, taken as-is:
+published builds, taken exactly as the publisher shipped them. The publishers
+differ per platform, and so do their configure lines, so the effective licence
+is stated per build rather than once for all of them:
 
-| Platform | Source |
-| --- | --- |
-| macOS | [evermeet.cx/ffmpeg](https://evermeet.cx/ffmpeg/) |
-| Windows | [BtbN/FFmpeg-Builds](https://github.com/BtbN/FFmpeg-Builds) |
+| Platform and arch | Publisher | Licence, from the configure line |
+| --- | --- | --- |
+| macOS x86_64 | [evermeet.cx/ffmpeg](https://evermeet.cx/ffmpeg/) | `--enable-gpl --enable-version3`, so **GPL v3 or later** |
+| macOS arm64 | [osxexperts.net](https://www.osxexperts.net) | `--enable-gpl`, no `--enable-version3`, so **GPL v2 or later** |
+| Windows x86_64 | [BtbN/FFmpeg-Builds](https://github.com/BtbN/FFmpeg-Builds) (the `win64-gpl` build) | `--enable-gpl --enable-version3`, so **GPL v3 or later** |
+| Linux x86_64 | [BtbN/FFmpeg-Builds](https://github.com/BtbN/FFmpeg-Builds) (the `linux64-gpl` build) | `--enable-gpl --enable-version3`, so **GPL v3 or later** |
+
+All four were read out of the builds those sources served, last on 15 November
+2026. Publishers change their configure lines, so the copy on your machine is
+the authoritative answer for your copy.
 
 `scripts/fetch-ffmpeg.mjs` is what downloads them, and it is the complete
 record of where they came from. To see exactly how the copy on your machine
@@ -82,7 +92,8 @@ The application shell: Chromium for the window, Node for the file handling.
 
 ## Meeting the GPL terms
 
-FFmpeg as shipped here is GPL v3. Distributing it inside an application carries
+FFmpeg as shipped here is GPL v3 or later, or GPL v2 or later on Apple Silicon
+(the table above). Distributing it inside an application carries
 obligations, and Just Fits meets them like this:
 
 0. **Compatibility.** Just Fits is GPL-3.0-or-later, the same licence, so there

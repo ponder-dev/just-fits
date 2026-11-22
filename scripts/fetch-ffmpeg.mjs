@@ -3,6 +3,7 @@
  *
  *   node scripts/fetch-ffmpeg.mjs            just this machine's arch
  *   node scripts/fetch-ffmpeg.mjs --all      everything a release needs
+ *   node scripts/fetch-ffmpeg.mjs --mac      (or --win, --linux) one platform's builds
  *
  * They are ~40-80MB each, they are not ours to redistribute through our own
  * git history, and they change on someone else's schedule. So vendor/ is
@@ -22,12 +23,16 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
+
+const { wanted: wantedBuilds, unzipCommand } = createRequire(import.meta.url)('./fetch-lib.cjs');
 
 // The hosts are small third parties and now and then refuse or stall a
 // connection from a CI runner. Every download is checked by sha256 or by the
-// licence gate afterwards, so trying again is safe.
-const RETRY = ['--retry', '5', '--retry-delay', '20', '--retry-all-errors', '--connect-timeout', '30'];
+// licence gate afterwards, so trying again is safe. --fail makes an error page
+// count as a failure, so it is retried instead of saved as the archive.
+const RETRY = ['--fail', '--retry', '5', '--retry-delay', '20', '--retry-all-errors', '--connect-timeout', '30'];
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const vendor = path.join(here, '..', 'vendor', 'ffmpeg');
@@ -50,22 +55,48 @@ const MAC_ARM = {
   },
 };
 
-// BtbN publishes GPL win64 builds with a stable "latest" tag.
-const WIN_ZIP =
-  'https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip';
-
-// johnvansickle publishes the static Linux builds everyone uses. GPL, with
-// libx264, and the tarball nests everything under a versioned directory.
+// Windows and Linux both come from BtbN's GPL builds, pinned to one dated
+// release and checked by the sha256 GitHub publishes for each archive, so a
+// build made today and one made next month ship the same ffmpeg. ("latest"
+// moved under us once: a newer ffprobe put a phone photo's turn somewhere the
+// old code did not look.) BtbN prunes old dated releases now and then; when
+// this one goes, the download fails loudly, and the fix is to pick a newer
+// release, check it, and put its names and hashes here.
+const BTBN = 'https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-11-21-12-37/';
+const WIN_ZIP = {
+  url: BTBN + 'ffmpeg-N-129166-gae9f4540cb-win64-gpl.zip',
+  sha256: '4f7e54b17b37ee7d8c539129efb839291929f27998f00f812828aeed1be9ce14',
+};
 const LINUX = {
-  x64: 'https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz',
-  arm64: 'https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-arm64-static.tar.xz',
+  x64: {
+    url: BTBN + 'ffmpeg-N-129166-gae9f4540cb-linux64-gpl.tar.xz',
+    sha256: '1492ec42dac9391baf1b3f7e3e3acdbb2b80f0af4efc45945ff9b988f62120c8',
+  },
+  arm64: {
+    url: BTBN + 'ffmpeg-N-129166-gae9f4540cb-linuxarm64-gpl.tar.xz',
+    sha256: '2c13f66dda3d42ab994148332a2fb189823afd7b5ed10018bdba5f387db7f108',
+  },
 };
 
-const wanted = process.argv.includes('--all')
-  ? [['darwin', 'x64'], ['darwin', 'arm64'], ['win32', 'x64'], ['linux', 'x64']]
-  : [[process.platform, process.arch]];
+// An archive is installed only when it is the one pinned above.
+function checkArchive(file, want, what) {
+  const got = createHash('sha256').update(fs.readFileSync(file)).digest('hex');
+  if (got !== want) {
+    throw new Error(
+      `${what} archive checksum mismatch.\n  expected ${want}\n  got      ${got}\n` +
+      'Refusing to install it.',
+    );
+  }
+}
+
+const wanted = wantedBuilds(process.argv, process.platform, process.arch);
 
 fs.mkdirSync(vendor, { recursive: true });
+
+function unzip(zip, dir) {
+  const [cmd, args] = unzipCommand(process.platform, zip, dir);
+  sh(cmd, args);
+}
 
 function sh(cmd, args) {
   return execFileSync(cmd, args, { stdio: ['ignore', 'pipe', 'inherit'] }).toString();
@@ -81,7 +112,7 @@ async function macTool(tool, arch) {
     fs.mkdirSync(tmp, { recursive: true });
     console.log(`  fetching ${tool} for mac arm64`);
     sh('curl', [...RETRY, '-sL', '--max-time', '900', '-o', path.join(tmp, 'a.zip'), url]);
-    sh('unzip', ['-oq', path.join(tmp, 'a.zip'), '-d', tmp]);
+    unzip(path.join(tmp, 'a.zip'), tmp);
 
     const got = createHash('sha256').update(fs.readFileSync(path.join(tmp, tool))).digest('hex');
     if (got !== sha256) {
@@ -105,7 +136,7 @@ async function macTool(tool, arch) {
   const tmp = path.join(os.tmpdir(), `${tool}-${Date.now()}.zip`);
   console.log(`  fetching ${tool} ${info.version} for mac ${arch}`);
   sh('curl', [...RETRY, '-sL', '--max-time', '600', '-o', tmp, url]);
-  sh('unzip', ['-oq', tmp, '-d', vendor]);
+  unzip(tmp, vendor);
   fs.renameSync(path.join(vendor, tool), target);
   fs.chmodSync(target, 0o755);
   fs.unlinkSync(tmp);
@@ -117,9 +148,10 @@ async function windows() {
 
   const tmp = path.join(os.tmpdir(), `ffmpeg-win-${Date.now()}`);
   fs.mkdirSync(tmp, { recursive: true });
-  console.log('  fetching ffmpeg and ffprobe for windows x64 (~80MB)');
-  sh('curl', [...RETRY, '-sL', '--max-time', '900', '-o', path.join(tmp, 'w.zip'), WIN_ZIP]);
-  sh('unzip', ['-oq', path.join(tmp, 'w.zip'), '-d', tmp]);
+  console.log('  fetching ffmpeg and ffprobe for windows x64 (~200MB)');
+  sh('curl', [...RETRY, '-sL', '--max-time', '900', '-o', path.join(tmp, 'w.zip'), WIN_ZIP.url]);
+  checkArchive(path.join(tmp, 'w.zip'), WIN_ZIP.sha256, 'windows');
+  unzip(path.join(tmp, 'w.zip'), tmp);
 
   for (const tool of need) {
     // The zip nests everything under a versioned folder, so go and find it.
@@ -133,13 +165,14 @@ async function windows() {
 async function linux(arch) {
   const need = ['ffmpeg', 'ffprobe'].filter((t) => !fs.existsSync(path.join(vendor, `${t}-linux-${arch}`)));
   if (!need.length) return console.log(`  have both linux ${arch} binaries`);
-  const url = LINUX[arch];
-  if (!url) return console.log(`  no linux build published for ${arch}`);
+  const pin = LINUX[arch];
+  if (!pin) return console.log(`  no linux build published for ${arch}`);
 
   const tmp = path.join(os.tmpdir(), `ffmpeg-linux-${Date.now()}`);
   fs.mkdirSync(tmp, { recursive: true });
-  console.log(`  fetching ffmpeg and ffprobe for linux ${arch} (~40MB)`);
-  sh('curl', [...RETRY, '-sL', '--max-time', '900', '-o', path.join(tmp, 'f.tar.xz'), url]);
+  console.log(`  fetching ffmpeg and ffprobe for linux ${arch} (~150MB)`);
+  sh('curl', [...RETRY, '-sL', '--max-time', '900', '-o', path.join(tmp, 'f.tar.xz'), pin.url]);
+  checkArchive(path.join(tmp, 'f.tar.xz'), pin.sha256, `linux ${arch}`);
   sh('tar', ['xf', path.join(tmp, 'f.tar.xz'), '-C', tmp]);
 
   for (const tool of need) {

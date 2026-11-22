@@ -59,7 +59,7 @@ const BOX = 'M232 511 L232 703 Q232 763 292 763 L732 763 Q792 763 792 703 ' +
  *
  * Just JPEG is a white photo card with a yellow sun, SubSmash is a dark slate
  * clapper with a yellow bar. Both are objects with weight and more than one
- * colour. A flat white pictogram sat next to them looks like a system glyph
+ * color. A flat white pictogram sat next to them looks like a system glyph
  * that wandered in, which is what the first version of this was.
  */
 const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${CANVAS}" height="${CANVAS}" viewBox="0 0 ${CANVAS} ${CANVAS}">

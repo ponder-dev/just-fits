@@ -231,8 +231,19 @@ function isDeviceName(outPath) {
   return /^(con|prn|aux|nul|conin\$|conout\$|com[1-9¹²³]|lpt[1-9¹²³])$/i.test(head);
 }
 
+// The sentence for a video too long for its target, the same words in the
+// window and on the command line. Empty when the picture will be fine.
+function lengthNote(p, size) {
+  if (!p) return '';
+  const forSize = size ? `for ${size}` : 'for that size';
+  if (p.hopeless) return `This is too long ${forSize}: expect a small, blurry picture, and it may still come out over. A bigger target or a shorter clip would look far better.`;
+  if (p.rough) return `This is long ${forSize}, so the picture will be softer than the original.`;
+  return '';
+}
+
 module.exports = {
   MB,
+  lengthNote,
   BASE64,
   TARGETS,
   HEADROOM,

@@ -1,7 +1,7 @@
 {
   "name": "justfits",
   "productName": "Just Fits",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "description": "Make a file small enough to send. Compresses video and images to an exact size limit, entirely on your own machine.",
   "author": {
     "name": "PonderDev",
@@ -17,24 +17,31 @@
   },
   "license": "GPL-3.0-or-later",
   "main": "src/main.cjs",
+  "desktopName": "com.ponderdev.justfits.desktop",
   "bin": {
     "justfits": "src/cli.cjs"
   },
   "private": true,
   "scripts": {
-    "start": "electron .",
-    "test": "node test/plan.test.cjs && node test/contract.test.cjs",
+    "start": "node scripts/electron.cjs .",
+    "test": "node test/plan.test.cjs && node test/contract.test.cjs && node test/skill.test.cjs && node test/scripts.test.cjs && node test/linux-launcher.test.cjs && node test/encode.test.cjs",
     "fetch-ffmpeg": "node scripts/fetch-ffmpeg.mjs",
     "licences": "node scripts/make-licenses.mjs",
-    "icon": "node scripts/make-icon.mjs && electron scripts/icons.cjs && ./scripts/make-icns.sh",
-    "dist:mac": "npm run licences && electron-builder --mac",
-    "dist:win": "npm run licences && electron-builder --win",
-    "dist": "npm run licences && electron-builder --mac --win --linux",
+    "icon": "npm run icon:svg && npm run icon:raster && npm run icon:icns",
+    "dist:mac": "node scripts/fetch-ffmpeg.mjs --mac && npm run icon && npm run licences && electron-builder --mac",
+    "dist:win": "node scripts/fetch-ffmpeg.mjs --win && npm run icon:svg && npm run icon:raster && npm run licences && electron-builder --win",
+    "dist": "node scripts/fetch-ffmpeg.mjs --all && npm run icon && npm run licences && electron-builder --mac --win --linux",
     "cli": "node src/cli.cjs",
     "test:linux": "./scripts/test-linux.sh",
     "test:cli": "node test/cli.test.cjs && node test/safety.test.cjs",
-    "test:window": "env -u ELECTRON_RUN_AS_NODE electron test/window.test.cjs",
-    "dist:linux": "npm run licences && electron-builder --linux"
+    "test:window": "node scripts/electron.cjs test/window.test.cjs",
+    "dist:linux": "node scripts/fetch-ffmpeg.mjs --linux && npm run icon:ensure && npm run licences && electron-builder --linux",
+    "icon:png": "npm run icon:svg && npm run icon:raster",
+    "icon:ensure": "node scripts/ensure-icon.cjs",
+    "icon:svg": "node scripts/make-icon.mjs",
+    "icon:raster": "node scripts/electron.cjs scripts/icons.cjs",
+    "icon:icns": "./scripts/make-icns.sh",
+    "postinstall": "node scripts/link-skill.cjs"
   },
   "devDependencies": {
     "electron": "^43.3.0",
@@ -44,6 +51,8 @@
     "src/**/*",
     "LICENSE",
     "THIRD-PARTY-NOTICES.md",
-    "licenses/**/*"
+    "licenses/**/*",
+    "agents/**/*",
+    "scripts/link-skill.cjs"
   ]
 }

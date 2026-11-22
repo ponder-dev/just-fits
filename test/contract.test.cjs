@@ -49,7 +49,29 @@ test('--describe is the shared schema and matches --help', () => {
   assert.equal(d.network, false);
   const help = run(['--help']).stdout;
   for (const o of d.options) for (const f of o.flags) assert.ok(help.includes(f), `--help lists ${f}`);
-  assert.deepEqual(d.exitCodes.map((e) => e.code), [0, 1, 2, 4, 129, 130, 143]);
+  // 3 is the contract's "partly done", for several files where some failed.
+  assert.deepEqual(d.exitCodes.map((e) => e.code), [0, 1, 2, 3, 4, 129, 130, 143]);
+  assert.equal(d.arguments[0].repeatable, true);
+});
+
+// The kit is named in four places (kit 1.0.0 is the decided name; the 1.2.x in
+// older commit messages were private builds). They must all say what kit.lock
+// says, and the kit's files must be the ones it locked.
+test('the kit is the one kit.lock names, everywhere it is said', () => {
+  const root = path.join(__dirname, '..');
+  const lock = JSON.parse(fs.readFileSync(path.join(root, 'kit.lock'), 'utf8'));
+  assert.match(lock.kit, /^\d+\.\d+\.\d+$/);
+  assert.equal(JSON.parse(run(['--describe']).stdout).kit, lock.kit, '--describe');
+  assert.equal(require('../src/kit/scan.cjs').VERSION, lock.kit, 'kit/scan.cjs');
+  assert.ok(fs.readFileSync(path.join(root, 'src', 'renderer', 'licenses.html'), 'utf8').includes(`PonderDev kit ${lock.kit},`), 'the licences page');
+  assert.ok(fs.readFileSync(path.join(root, 'README.md'), 'utf8').includes(`Built with kit ${lock.kit},`), 'README');
+  for (const [file, hash] of Object.entries(lock.files)) {
+    // Hashed with any \r taken out, so a checkout that turned LF into CRLF
+    // (Windows, without .gitattributes) still matches what kit.lock locked.
+    const text = fs.readFileSync(path.join(root, file), 'utf8').replace(/\r/g, '');
+    const got = require('node:crypto').createHash('sha256').update(text).digest('hex');
+    assert.equal(got, hash, `${file} is not the file kit.lock locked`);
+  }
 });
 
 test('usage errors exit 2, as JSON under --json, with a done line', () => {
